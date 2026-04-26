@@ -1,0 +1,53 @@
+<svg width="680" height="400" viewBox="0 0 680 400" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>Recliniq logo</title>
+  <desc>Minimalistic medical app logo for Recliniq featuring a shield icon with a cross, with the app name below</desc>
+
+  <!-- Icon: shield shape -->
+  <path d="M340,55 L390,80 L390,148 Q390,178 340,192 Q290,178 290,148 L290,80 Z" fill="#0a3d52"/>
+  <!-- Inner darker layer -->
+  <path d="M340,68 L380,89 L380,148 Q380,170 340,182 Q300,170 300,148 L300,89 Z" fill="#072d3d"/>
+
+  <!-- Cross inside shield -->
+  <rect x="330" y="95" width="20" height="58" rx="5" fill="#ffffff"/>
+  <rect x="311" y="114" width="58" height="20" rx="5" fill="#ffffff"/>
+
+  <!-- Accent dot -->
+  <circle cx="340" cy="175" r="5" fill="#2fc4d8"/>
+
+  <!-- Wordmark: "rec" in accent color -->
+  <text
+    x="230"
+    y="248"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="46"
+    font-weight="600"
+    letter-spacing="1"
+    fill="#0a8fa8"
+  >rec</text>
+  <!-- "liniq" in dark color -->
+  <text
+    x="307"
+    y="248"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="46"
+    font-weight="600"
+    letter-spacing="1"
+    fill="#0a3d52"
+  >liniq</text>
+
+  <!-- Tagline -->
+  <text
+    x="340"
+    y="278"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, sans-serif"
+    font-size="12.5"
+    font-weight="400"
+    letter-spacing="2.5"
+    fill="#3a7a8e"
+  >RECORDS · CLINIC · IQ</text>
+
+  <!-- Decorative rule -->
+  <line x1="260" y1="293" x2="420" y2="293" stroke="#a0c8d8" stroke-width="0.8" stroke-linecap="round"/>
+
+</svg>
