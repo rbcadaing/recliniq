@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 62 48" fill="none" role="img" aria-label="RecLinq">
+  <mask id="reclinq-cross" maskUnits="userSpaceOnUse" x="0" y="0" width="62" height="48">
+    <rect width="62" height="48" fill="#fff" />
+    <path d="M28.6 17.7h4.8v4.5h4.5v4.8h-4.5v4.5h-4.8v-4.5h-4.5v-4.8h4.5z" fill="#000" />
+  </mask>
+  <g mask="url(#reclinq-cross)">
+    <rect x="23" y="16" width="16" height="16" rx="5" fill="#0B6E4F" />
+    <rect x="3" y="11" width="30" height="26" rx="13" stroke="#0B6E4F" stroke-width="6" />
+    <rect x="29" y="11" width="30" height="26" rx="13" stroke="#0B6E4F" stroke-width="6" />
+  </g>
+</svg>
