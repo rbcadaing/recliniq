@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" role="img" aria-label="RecLinq">
+  <mask id="reclinq-favicon" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+    <rect width="48" height="48" fill="#fff" />
+    <path d="M20 11h8v9h9v8h-9v9h-8v-9h-9v-8h9z" fill="#000" />
+  </mask>
+  <rect width="48" height="48" rx="11" fill="#0B6E4F" mask="url(#reclinq-favicon)" />
+</svg>

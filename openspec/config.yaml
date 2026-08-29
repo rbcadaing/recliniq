@@ -1,0 +1,71 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: true
+
+# Project background for agents. Apply as constraints; do not copy this block
+# into proposal/design/spec/task artifacts.
+context: |
+  Product: RecLinq — clinic SaaS (practitioner schedule, patient booking, visit queue).
+
+  Stack (required unless a change explicitly justifies an exception):
+  - Frontend: React (TypeScript). Prefer Vite or an equivalent SPA/tooling setup; functional components and hooks; typed props and API clients.
+  - Backend: Python FastAPI. Pydantic v2 models, APIRouter modules, dependency injection, OpenAPI as the contract the frontend consumes.
+  - Database: PostgreSQL. Schema changes only through versioned migrations (Alembic). Application access via a query layer (SQLAlchemy 2.x or equivalent) — no ad-hoc SQL string concatenation.
+
+  Cursor workflow:
+  - This repo is developed in Cursor. Use project OpenSpec skills under `.cursor/skills/` (and matching `.agents/skills/`) instead of inventing a parallel process: explore, propose, update-change, apply-change, archive-change, sync-specs.
+  - Explore is thinking only — no application code. Implementation happens only after a change exists and apply-change (or an explicit implement request) is in play.
+  - Scaffold changes with `openspec new change "<name>"`. Never create `openspec/changes/<name>/` by hand.
+  - Prefer `--json` on OpenSpec CLI when parsing status, instructions, list, or validate.
+  - Put durable coding conventions in `.cursor/rules/*.mdc` when they should apply during implementation; keep OpenSpec `rules` focused on planning artifacts.
+
+  Engineering practices:
+  - Spec-driven: proposal → specs → design → tasks → implement against tasks.
+  - Multi-tenant clinic data: tenant isolation in every data model and query unless a change says otherwise.
+  - Secrets stay in env / secret stores; never commit `.env` with credentials.
+  - Validate OpenSpec changes with `openspec validate` before treating planning as done.
+  - Frontend talks to the backend only through the HTTP API (typed client from OpenAPI where practical). No direct database access from React.
+  - Health, auth, and errors: FastAPI exception handlers, consistent error payloads, PostgreSQL transactions for booking/queue writes that must not double-book.
+
+rules:
+  proposal:
+    - "Assume Cursor + OpenSpec skills as the working environment; do not propose Copilot-only or undocumented CLI workflows."
+    - "Scope the change to RecLinq capabilities (schedule, booking, queue) unless the user asked otherwise."
+    - "Name the stack as React (TypeScript) + FastAPI + PostgreSQL in Affected areas / approach when the change touches product code."
+    - "Include a Non-goals section so EMR, payments, and telehealth stay out unless in scope."
+    - "Keep the proposal under 500 words; point to design for technical depth."
+    - "Call out tenant/clinic isolation if the change stores patient or schedule data."
+  specs:
+    - "Write behavior as requirements and scenarios (WHEN / THEN), not framework tutorials."
+    - "Specify actor surfaces (practitioner, patient, clinic staff) and which React client they use."
+    - "For booking and queue, require conflict-free capacity (no double-book) as observable behavior, not as an implementation note."
+    - "Do not bind scenarios to CSS libraries or component kits unless the user required a specific UI kit."
+    - "Keep PHI/PII out of example names where a ticket number or role label is enough."
+  design:
+    - "Split design by layer — React UI/state, FastAPI routes/services, PostgreSQL tables/migrations — and the API contract between them."
+    - "Prefer FastAPI routers plus service/repository modules over god files; prefer React feature folders colocated with the capability."
+    - "State how availability, bookings, and live queue stay consistent (transactions, unique constraints, row locks, or equivalent)."
+    - "Call out authn/authz per endpoint and that the SPA never holds a DB connection string."
+    - "Migrations are additive-first; destructive changes need an explicit rollout note."
+    - "For live queue, say how the React client gets updates (polling vs SSE vs WebSocket) and why."
+    - "Record Cursor-oriented delivery — which OpenSpec skill owns implement vs archive; no empty-task 'just code it' designs."
+  tasks:
+    - "Group tasks as backend (FastAPI/PostgreSQL), frontend (React), then integration — smallest vertical slice that a practitioner can plot hours, a patient can book, and a visitor can see queue position."
+    - "Each task must be verifiable (test, migration, or UI check); no 'set up the whole app' mega-tasks."
+    - "Include Alembic migration tasks whenever schema changes; include OpenAPI/client typing when routes change."
+    - "Include Cursor-friendly slices (one capability per task group) so apply-change can implement without unbounded scope."
+    - "Do not include tasks that install unrelated stacks (Django, Next-only, Mongo, etc.)."
+    - "Break work into chunks that can land in roughly two hours or less."
+
+operations:
+  apply:
+    guidance:
+      - "Implement only from the change's tasks.md; do not expand stack beyond React + FastAPI + PostgreSQL."
+      - "Follow apply-change skill — increment task checkboxes, keep diffs scoped, run relevant tests."
+      - "Use .cursor/rules and this config as constraints; do not paste them into source files."
+      - "Backend first when a task depends on a new table or route; then React against the real contract."
+      - "Never commit secrets; keep DATABASE_URL and API keys in environment configuration."
+  archive:
+    guidance:
+      - "Summarize the archive outcome (which specs landed) before finishing."
+      - "Confirm tasks are complete and openspec validate is clean before archive --yes."

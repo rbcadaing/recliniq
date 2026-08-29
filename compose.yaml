@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-recliniq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recliniq}
+      POSTGRES_DB: ${POSTGRES_DB:-recliniq}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recliniq} -d ${POSTGRES_DB:-recliniq}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-recliniq}:${POSTGRES_PASSWORD:-recliniq}@db:5432/${POSTGRES_DB:-recliniq}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      UPLOAD_DIR: /data/uploads
+      PYTHONPATH: /app
+    volumes:
+      - uploads:/data/uploads
+      - ./backend:/app
+    command: ["sh", "/app/entrypoint.sh"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  uploads:
