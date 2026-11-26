@@ -1,72 +1,65 @@
-<img src="frontend/public/logo-mark.svg" alt="RecLinq" height="48">
+# RecliniQ
 
-# RecLinq
+Clinic platform for doctor schedules, online consultation booking, live patient queues, and medical records.
 
-Clinic scheduling, booking, visit records, and alerts.
+## Repository layout
 
-## Local development (Docker Compose)
+| Path | What |
+| --- | --- |
+| `backend/` | FastAPI service (Python 3.12, SQLAlchemy 2.x, Alembic, PostgreSQL) using clean architecture |
+| `frontend/` | React + TypeScript single-page app built with Vite |
+| `docker-compose.yml` | Local stack: PostgreSQL, backend, frontend |
+| `openspec/` | Specs and change proposals |
 
-You do not need Postgres installed on the host.
+## Prerequisites
 
-1. Copy environment defaults:
+- Docker Desktop (for the one-command local stack)
+- Optional, for running natively or running checks locally: [uv](https://docs.astral.sh/uv/) and Node.js 24 LTS
 
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Start the stack:
-
-   ```bash
-   docker compose up --build
-   ```
-
-3. Open the app:
-
-   - Public portal: http://localhost:5173
-   - Signed-in clinic workspace: http://localhost:5173/app
-   - API health: http://localhost:8000/health
-   - OpenAPI: http://localhost:8000/docs
-
-The API container runs `alembic upgrade head` and seeds staff on start.
-Use **Get care** on the public portal to sign in and continue directly to
-booking, visit history, alerts, or the staff schedule.
-
-### Seed accounts (local)
-
-| Role | Email | Password |
-|---|---|---|
-| Doctor | doctor@example.com | DoctorPass1! |
-| Assistant | assistant@example.com | AssistPass1! |
-
-Patients register from the SPA. Change passwords in `.env` before any real use.
-
-Optional seed after the API is up:
+## Quick start
 
 ```bash
-docker compose exec api python -m app.seed
+cp .env.example .env
+docker compose up --build
 ```
 
-## Tests (API)
+| Service | URL |
+| --- | --- |
+| Frontend | http://localhost:5173 (the home page shows backend status) |
+| Backend API | http://localhost:8000/api/v1/health |
+| API docs (Swagger) | http://localhost:8000/api/v1/docs |
+| PostgreSQL | `localhost:5432` (user, password, and database `recliniq`) |
 
-From `backend/` with Python 3.12+:
+- The backend applies database migrations automatically before it starts serving.
+- Backend and frontend reload when you save a file. File polling is on by default because Docker bind mounts on Windows and macOS don't deliver file events. On Linux, set `DEV_WATCH_POLLING=false` in `.env`.
+- Database data lives in the `db-data` volume and survives `docker compose down`. Use `docker compose down -v` to wipe it.
+- If a port is taken, change `POSTGRES_PORT`, `BACKEND_PORT`, or `FRONTEND_PORT` in `.env`.
+
+## Configuration
+
+Every setting is documented in an example file. Real `.env` files are git-ignored, so never commit secrets.
+
+| File | Used by |
+| --- | --- |
+| `.env.example` → `.env` | Docker Compose (DB credentials, ports, polling) |
+| `backend/.env.example` → `backend/.env` | Backend when run natively |
+| `frontend/.env.example` → `frontend/.env.local` | Frontend when run natively |
+
+## Running checks locally (same as CI)
 
 ```bash
-pip install -r requirements.txt
-pytest
+# Backend
+cd backend
+uv sync
+uv run ruff check . && uv run ruff format --check . && uv run mypy
+TEST_DATABASE_URL=postgresql+asyncpg://recliniq:recliniq@localhost:5432/recliniq_test uv run pytest
+
+# Frontend
+cd frontend
+npm ci
+npm run lint && npm run typecheck && npm test -- --run && npm run build
 ```
 
-Or:
+Integration tests need a **disposable** database because they migrate it up and down. Create one in the running stack with `docker compose exec db createdb -U recliniq recliniq_test`. Without `TEST_DATABASE_URL`, integration tests are skipped.
 
-```bash
-docker compose exec api pytest
-```
-
-## Brand assets
-
-| Asset | File | Use |
-|---|---|---|
-| Logo mark | `frontend/public/logo-mark.svg` | Header, README, marketing |
-| App icon | `frontend/public/favicon.svg` | Favicon, apple-touch-icon |
-
-Brand green is `#0b6e4f`. The wordmark is set in the app's system font stack by
-`frontend/src/Brand.tsx`, so there is no font file to ship.
+See `backend/README.md` for the backend architecture and conventions.

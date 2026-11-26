@@ -1,16 +1,30 @@
+# Environment files (never commit real secrets)
 .env
-.venv/
-venv/
+.env.*
+!.env.example
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
-backend/.pytest_cache/
-backend/test.db
-frontend/node_modules/
-frontend/dist/
-uploads/
-data/
-*.log
-.idea/
+htmlcov/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# IDE / OS
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json

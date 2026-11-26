@@ -1,8 +1,6 @@
-__pycache__
-.pytest_cache
 .venv
-*.pyc
-test.db
-uploads
-test-uploads
-.git
+.env
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
