@@ -43,4 +43,4 @@
 
 - [x] 7.1 Add `.github/workflows/ci.yml` triggered on `pull_request` and push to `main` with a `backend` job (uv sync --frozen, ruff check, ruff format --check, mypy, alembic upgrade head, pytest with postgres:16 service) and a `frontend` job (npm ci, lint, typecheck, test, build); verify the YAML is valid (e.g., `actionlint` or GitHub workflow parse)
 - [x] 7.2 Run the full backend and frontend check commands locally exactly as CI does; verify all pass
-- [ ] 7.3 Connect the repo to GitHub, push a branch, and open a PR; verify both CI jobs run and pass (deferred until the user confirms the target repository)
+- [x] 7.3 Connect the repo to GitHub, push a branch, and open a PR; verify both CI jobs run and pass (deferred until the user confirms the target repository)
