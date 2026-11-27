@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.infrastructure.db import soft_delete  # noqa: F401  (registers session-wide listeners)
+
 
 class Database:
     def __init__(self, url: str, *, echo: bool = False) -> None:
