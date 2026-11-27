@@ -51,3 +51,33 @@ uv run alembic downgrade -1
 ```
 
 A test fails if the ORM models contain schema changes that no migration captures.
+
+## Soft delete
+
+Rows are never physically deleted (US-00.2). Deleting a record sets `deleted_at` and `deleted_by` instead.
+
+- **Every model uses `SoftDeleteMixin`** (`app/infrastructure/db/base.py`). `deleted_by` is the acting user's id, or `None` for system actions. It has no foreign key on purpose. A unit test fails if a table lacks the columns, unless it's listed with a reason in `SOFT_DELETE_EXEMPT_TABLES` (`app/infrastructure/db/soft_delete.py`).
+- **Deleted rows are hidden by default.** Every ORM `SELECT` gets `deleted_at IS NULL` for soft-deletable models, including joins and relationship loads. To see deleted rows, opt out per statement with `.execution_options(include_deleted=True)`. Raw `text()` queries bypass the filter.
+- **Use `SoftDeleteRepository`** (`app/infrastructure/db/repository.py`) as the base for feature repositories: `get(id, include_deleted=False)`, `list_deleted()`, `soft_delete(entity, actor_id)`, and `restore(entity)`. Both `soft_delete` and `restore` are idempotent. `get` uses a `SELECT` rather than `session.get`, so it doesn't return an entity that was soft-deleted earlier in the same session.
+- **Hard deletes fail.** `session.delete(entity)` and bulk `delete(Model)` raise `HardDeleteForbiddenError`, which surfaces as a 500 response. A database trigger also rejects raw `DELETE`s.
+- **New table migrations must protect the table:**
+  ```python
+  from app.infrastructure.db.migration_helpers import (
+      protect_from_hard_delete,
+      unprotect_from_hard_delete,
+  )
+
+
+  def upgrade() -> None:
+      op.create_table("things", ...)
+      protect_from_hard_delete("things")
+
+
+  def downgrade() -> None:
+      unprotect_from_hard_delete("things")
+      op.drop_table("things")
+  ```
+  An integration test fails if a soft-deletable table has no trigger.
+- **Uniqueness:** use `soft_unique_index("uq_things_code_active", "code")` in `__table_args__` instead of `unique=True` or `UniqueConstraint`, so deleted rows don't block new ones. Upserts must repeat the predicate: `ON CONFLICT (code) WHERE deleted_at IS NULL`.
+- **No automatic cascade.** Soft-deleting a parent leaves its children untouched. If a feature needs a cascade, its service soft-deletes the children explicitly.
+- **Maintenance override** (for operators only; app code never sets it): inside a transaction, run `SET LOCAL recliniq.allow_hard_delete = 'on'` before the `DELETE`.
