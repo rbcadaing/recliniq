@@ -5,19 +5,24 @@ is rolled back afterwards, so tests never see each other's data.
 """
 
 import os
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic.config import Config
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from alembic import command
 from app.core.config import load_settings
+from app.infrastructure.accounts.mailer import InMemoryMailer
 from app.main import create_app
+from app.presentation.dependencies import get_clock, get_mailer, get_session
+from tests.integration.api_support import PASSWORD, FakeClock
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -91,3 +96,84 @@ async def integration_client(integration_app: FastAPI) -> AsyncIterator[AsyncCli
         AsyncClient(transport=transport, base_url="http://testserver") as http,
     ):
         yield http
+
+
+# --- Account API fixtures (shared by the account and session API tests) -----------------
+
+
+@pytest.fixture
+async def clean_rate_limits(engine: AsyncEngine) -> AsyncIterator[None]:
+    async with engine.begin() as connection:
+        await connection.execute(text("DELETE FROM rate_limit_counters"))
+    yield
+    async with engine.begin() as connection:
+        await connection.execute(text("DELETE FROM rate_limit_counters"))
+
+
+@pytest.fixture
+def mailer() -> InMemoryMailer:
+    return InMemoryMailer()
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
+
+
+@pytest.fixture
+async def api(
+    integration_app: FastAPI,
+    db_session: AsyncSession,
+    mailer: InMemoryMailer,
+    clock: FakeClock,
+    clean_rate_limits: None,
+) -> AsyncIterator[Callable[..., AsyncClient]]:
+    async def shared_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    integration_app.dependency_overrides[get_session] = shared_session
+    integration_app.dependency_overrides[get_mailer] = lambda: mailer
+    integration_app.dependency_overrides[get_clock] = lambda: clock
+    clients: list[AsyncClient] = []
+
+    def make(ip: str = "203.0.113.10") -> AsyncClient:
+        transport = ASGITransport(app=integration_app, client=(ip, 50000))
+        client = AsyncClient(transport=transport, base_url="http://testserver")
+        clients.append(client)
+        return client
+
+    async with integration_app.router.lifespan_context(integration_app):
+        yield make
+        for client in clients:
+            await client.aclose()
+
+
+@pytest.fixture
+async def client(api: Callable[..., AsyncClient]) -> AsyncClient:
+    return api()
+
+
+@pytest.fixture
+async def specialization_id(client: AsyncClient) -> str:
+    response = await client.get("/api/v1/specializations")
+    return str(response.json()[0]["id"])
+
+
+@pytest.fixture
+def signup(specialization_id: str) -> Callable[..., dict[str, Any]]:
+    def build(**overrides: Any) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "first_name": "Juan",
+            "middle_name": "Santos",
+            "last_name": "Dela Cruz",
+            "email": "Juan.DelaCruz@Example.com",
+            "mobile": "0917 123 4567",
+            "password": PASSWORD,
+            "specialization_id": specialization_id,
+            "prc_license_no": "12345",
+            "privacy_consent": True,
+        }
+        body.update(overrides)
+        return body
+
+    return build

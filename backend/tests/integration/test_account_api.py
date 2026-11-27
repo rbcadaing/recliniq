@@ -5,16 +5,15 @@ the rate limiter commits in its own transaction, so its (exempt) table is cleare
 """
 
 import logging
-import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.accounts.mailer import InMemoryMailer, SmtpMailer
 from app.infrastructure.accounts.models import (
@@ -22,116 +21,17 @@ from app.infrastructure.accounts.models import (
     EmailVerificationTokenModel,
     UserModel,
 )
-from app.presentation.dependencies import get_clock, get_mailer, get_session
-
-SIGNUP = "/api/v1/auth/doctors/signup"
-CONFIRM = "/api/v1/auth/email-verification/confirm"
-RESEND = "/api/v1/auth/email-verification/resend"
-PASSWORD = "correct horse battery staple"
-TOKEN_IN_LINK = re.compile(r"verify-email\?token=([\w-]+)")
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.current = datetime.now(UTC)
-
-    def now(self) -> datetime:
-        return self.current
-
-
-@pytest.fixture
-async def clean_rate_limits(engine: AsyncEngine) -> AsyncIterator[None]:
-    async with engine.begin() as connection:
-        await connection.execute(text("DELETE FROM rate_limit_counters"))
-    yield
-    async with engine.begin() as connection:
-        await connection.execute(text("DELETE FROM rate_limit_counters"))
-
-
-@pytest.fixture
-def mailer() -> InMemoryMailer:
-    return InMemoryMailer()
-
-
-@pytest.fixture
-def clock() -> FakeClock:
-    return FakeClock()
-
-
-@pytest.fixture
-async def api(
-    integration_app: FastAPI,
-    db_session: AsyncSession,
-    mailer: InMemoryMailer,
-    clock: FakeClock,
-    clean_rate_limits: None,
-) -> AsyncIterator[Callable[..., AsyncClient]]:
-    async def shared_session() -> AsyncIterator[AsyncSession]:
-        yield db_session
-
-    integration_app.dependency_overrides[get_session] = shared_session
-    integration_app.dependency_overrides[get_mailer] = lambda: mailer
-    integration_app.dependency_overrides[get_clock] = lambda: clock
-    clients: list[AsyncClient] = []
-
-    def make(ip: str = "203.0.113.10") -> AsyncClient:
-        transport = ASGITransport(app=integration_app, client=(ip, 50000))
-        client = AsyncClient(transport=transport, base_url="http://testserver")
-        clients.append(client)
-        return client
-
-    async with integration_app.router.lifespan_context(integration_app):
-        yield make
-        for client in clients:
-            await client.aclose()
-
-
-@pytest.fixture
-async def client(api: Callable[..., AsyncClient]) -> AsyncClient:
-    return api()
-
-
-@pytest.fixture
-async def specialization_id(client: AsyncClient) -> str:
-    response = await client.get("/api/v1/specializations")
-    return str(response.json()[0]["id"])
-
-
-@pytest.fixture
-def signup(specialization_id: str) -> Callable[..., dict[str, Any]]:
-    def build(**overrides: Any) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "first_name": "Juan",
-            "middle_name": "Santos",
-            "last_name": "Dela Cruz",
-            "email": "Juan.DelaCruz@Example.com",
-            "mobile": "0917 123 4567",
-            "password": PASSWORD,
-            "specialization_id": specialization_id,
-            "prc_license_no": "12345",
-            "privacy_consent": True,
-        }
-        body.update(overrides)
-        return body
-
-    return build
-
-
-def token_from(mailer: InMemoryMailer, index: int = -1) -> str:
-    match = TOKEN_IN_LINK.search(mailer.outbox[index].text)
-    assert match is not None
-    return match.group(1)
-
-
-async def user_row(session: AsyncSession, email: str = "juan.delacruz@example.com") -> UserModel:
-    row = await session.scalar(select(UserModel).where(UserModel.email == email))
-    assert row is not None
-    return row
-
-
-def field_errors(response: Any) -> set[str]:
-    return {d["field"].split(".")[-1] for d in response.json()["error"]["details"]}
-
+from app.presentation.dependencies import get_mailer
+from tests.integration.api_support import (
+    CONFIRM,
+    PASSWORD,
+    RESEND,
+    SIGNUP,
+    FakeClock,
+    field_errors,
+    token_from,
+    user_row,
+)
 
 # --- Specializations --------------------------------------------------------------------
 

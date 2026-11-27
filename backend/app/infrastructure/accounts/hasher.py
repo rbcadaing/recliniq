@@ -8,8 +8,9 @@ from app.domain.accounts.passwords import normalize_password
 
 
 class Argon2PasswordHasher:
-    def __init__(self) -> None:
-        self._argon2 = _Argon2()  # library defaults: Argon2id with RFC 9106 parameters
+    def __init__(self, argon2: _Argon2 | None = None) -> None:
+        # Library defaults: Argon2id with RFC 9106 parameters.
+        self._argon2 = argon2 or _Argon2()
 
     async def hash(self, password: str) -> str:
         normalized = normalize_password(password)
@@ -25,3 +26,10 @@ class Argon2PasswordHasher:
                 return False
 
         return await anyio.to_thread.run_sync(_verify)
+
+    def needs_rehash(self, password_hash: str) -> bool:
+        """True if the hash was made with different (e.g. weaker) parameters than ours."""
+        try:
+            return self._argon2.check_needs_rehash(password_hash)
+        except InvalidHashError:
+            return True

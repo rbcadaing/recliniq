@@ -82,3 +82,30 @@ class RateLimitCounterModel(Base):
     bucket: Mapped[str] = mapped_column(String(200), primary_key=True)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
+
+
+class PasswordResetTokenModel(TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (soft_unique_index("uq_password_reset_tokens_hash_active", "token_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RefreshTokenModel(TimestampMixin, SoftDeleteMixin, Base):
+    """One link in a session's rotation chain. Revocation uses ``revoked_at`` (not soft delete),
+    so reuse detection can still find used and revoked tokens."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (soft_unique_index("uq_refresh_tokens_hash_active", "token_hash"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

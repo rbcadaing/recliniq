@@ -16,8 +16,8 @@ from app.infrastructure.accounts.models import DoctorProfileModel, UserModel
 from app.infrastructure.accounts.rate_limiter import PostgresRateLimiter
 from app.infrastructure.accounts.repositories import (
     SqlSpecializationRepository,
-    SqlTokenRepository,
     SqlUserRepository,
+    SqlVerificationTokenRepository,
 )
 
 NOW = datetime(2026, 11, 27, 10, 0, tzinfo=UTC)
@@ -148,7 +148,7 @@ async def test_mark_email_verified(db_session: AsyncSession) -> None:
 
 async def test_token_lifecycle(db_session: AsyncSession) -> None:
     users = SqlUserRepository(db_session)
-    tokens = SqlTokenRepository(db_session)
+    tokens = SqlVerificationTokenRepository(db_session)
     user, profile = _doctor(await _specialization_id(db_session))
     await users.add_doctor(user, profile)
     first = VerificationToken(user_id=user.id, token_hash="a" * 64, expires_at=NOW)
@@ -239,3 +239,90 @@ async def test_old_windows_are_purged(limiter_engine: AsyncEngine) -> None:
     async with limiter_engine.connect() as connection:
         buckets = (await connection.execute(text("SELECT bucket FROM rate_limit_counters"))).all()
     assert [b[0] for b in buckets] == ["signup:ip:new"]
+
+
+# --- Password reset tokens, refresh tokens, profiles (US-01.3) --------------------------
+
+
+async def test_password_reset_token_lifecycle(db_session: AsyncSession) -> None:
+    from app.infrastructure.accounts.repositories import SqlPasswordResetTokenRepository
+
+    users = SqlUserRepository(db_session)
+    resets = SqlPasswordResetTokenRepository(db_session)
+    verifications = SqlVerificationTokenRepository(db_session)
+    user, profile = _doctor(await _specialization_id(db_session))
+    await users.add_doctor(user, profile)
+    token = VerificationToken(user_id=user.id, token_hash="c" * 64, expires_at=NOW)
+    await resets.add(token)
+
+    assert await resets.find_by_hash("c" * 64) is not None
+    assert await verifications.find_by_hash("c" * 64) is None  # separate tables
+    await resets.mark_used(token.id, NOW)
+    found = await resets.find_by_hash("c" * 64)
+    assert found is not None
+    assert found.used_at == NOW
+
+    fresh = VerificationToken(user_id=user.id, token_hash="d" * 64, expires_at=NOW)
+    await resets.add(fresh)
+    await resets.invalidate_unused(user.id)
+    assert await resets.find_by_hash("d" * 64) is None
+
+
+async def test_refresh_tokens_revoke_family_and_user(db_session: AsyncSession) -> None:
+    from app.domain.accounts.entities import RefreshToken
+    from app.infrastructure.accounts.repositories import SqlRefreshTokenRepository
+
+    users = SqlUserRepository(db_session)
+    refresh = SqlRefreshTokenRepository(db_session)
+    user, profile = _doctor(await _specialization_id(db_session))
+    await users.add_doctor(user, profile)
+    family_a, family_b = uuid.uuid4(), uuid.uuid4()
+    a1 = RefreshToken(user_id=user.id, family_id=family_a, token_hash="1" * 64, expires_at=NOW)
+    a2 = RefreshToken(user_id=user.id, family_id=family_a, token_hash="2" * 64, expires_at=NOW)
+    b1 = RefreshToken(user_id=user.id, family_id=family_b, token_hash="3" * 64, expires_at=NOW)
+    for token in (a1, a2, b1):
+        await refresh.add(token)
+    await refresh.mark_used(a1.id, NOW)
+
+    await refresh.revoke_family(family_a, NOW)
+
+    used = await refresh.find_by_hash("1" * 64)
+    assert used is not None  # used and revoked tokens are still findable (reuse detection)
+    assert used.used_at == NOW
+    assert used.revoked_at == NOW
+    a2_found = await refresh.find_by_hash("2" * 64)
+    assert a2_found is not None
+    assert a2_found.revoked_at == NOW
+    b1_found = await refresh.find_by_hash("3" * 64)
+    assert b1_found is not None
+    assert b1_found.revoked_at is None
+
+    later = NOW + timedelta(minutes=1)
+    await refresh.revoke_all_for_user(user.id, later)
+    b1_found = await refresh.find_by_hash("3" * 64)
+    assert b1_found is not None
+    assert b1_found.revoked_at == later
+    a2_found = await refresh.find_by_hash("2" * 64)
+    assert a2_found is not None
+    assert a2_found.revoked_at == NOW  # already revoked: unchanged
+
+
+async def test_find_profile_and_update_password(db_session: AsyncSession) -> None:
+    users = SqlUserRepository(db_session)
+    specializations = await SqlSpecializationRepository(db_session).list_all()
+    user, profile = _doctor(specializations[0].id)
+    await users.add_doctor(user, profile)
+
+    await users.update_password(user.id, "new-hash")
+    account = await users.find_profile(user.id)
+
+    assert account is not None
+    assert account.role is Role.DOCTOR
+    assert account.email_verified is False
+    assert account.doctor is not None
+    assert account.doctor.license_status is LicenseStatus.PENDING
+    assert account.doctor.specialization.name == specializations[0].name
+    found = await users.find(user.id)
+    assert found is not None
+    assert found.password_hash == "new-hash"
+    assert await users.find_profile(uuid.uuid4()) is None

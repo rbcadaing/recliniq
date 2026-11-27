@@ -6,22 +6,39 @@ from typing import Annotated, Any
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.accounts.ports import Clock, Mailer, RateLimiter, SpecializationRepository
+from app.application.accounts.ports import (
+    Clock,
+    Mailer,
+    RateLimiter,
+    SpecializationRepository,
+    TokenIssuer,
+)
 from app.application.accounts.services import (
     AccountSettings,
     ConfirmEmail,
     ResendVerification,
     SignUpDoctor,
 )
+from app.application.accounts.sessions import (
+    Login,
+    Logout,
+    RefreshSession,
+    RequestPasswordReset,
+    ResetPassword,
+    SessionSettings,
+)
 from app.application.health.service import DatabaseHealthCheck, HealthService
 from app.core.config import Settings
 from app.infrastructure.accounts.hasher import Argon2PasswordHasher
+from app.infrastructure.accounts.jwt import JwtTokenIssuer
 from app.infrastructure.accounts.mailer import SmtpMailer
 from app.infrastructure.accounts.rate_limiter import PostgresRateLimiter
 from app.infrastructure.accounts.repositories import (
+    SqlPasswordResetTokenRepository,
+    SqlRefreshTokenRepository,
     SqlSpecializationRepository,
-    SqlTokenRepository,
     SqlUserRepository,
+    SqlVerificationTokenRepository,
 )
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.db.database import Database, SqlDatabaseHealthCheck
@@ -118,7 +135,7 @@ def _account_ports(
 ) -> dict[str, Any]:
     return {
         "users": SqlUserRepository(session),
-        "tokens": SqlTokenRepository(session),
+        "tokens": SqlVerificationTokenRepository(session),
         "limiter": limiter,
         "clock": clock,
         "settings": settings,
@@ -149,3 +166,103 @@ SpecializationRepositoryDep = Annotated[
 SignUpDoctorDep = Annotated[SignUpDoctor, Depends(get_sign_up_doctor)]
 ConfirmEmailDep = Annotated[ConfirmEmail, Depends(get_confirm_email)]
 ResendVerificationDep = Annotated[ResendVerification, Depends(get_resend_verification)]
+
+
+# --- Sessions (US-01.3) -----------------------------------------------------------------
+
+
+def get_token_issuer(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    clock: Annotated[Clock, Depends(get_clock)],
+) -> TokenIssuer:
+    return JwtTokenIssuer(
+        secret=settings.jwt_secret.get_secret_value(),
+        ttl_minutes=settings.access_token_ttl_minutes,
+        clock=clock,
+    )
+
+
+def get_session_settings(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> SessionSettings:
+    return SessionSettings(
+        app_name=settings.app_name,
+        frontend_base_url=settings.frontend_base_url,
+        refresh_token_ttl_days=settings.refresh_token_ttl_days,
+        password_reset_ttl_minutes=settings.password_reset_ttl_minutes,
+        login_window_seconds=settings.rate_limit_login_window_seconds,
+        login_per_ip=settings.rate_limit_login_per_ip,
+        login_per_email=settings.rate_limit_login_per_email,
+        forgot_window_seconds=settings.rate_limit_window_seconds,
+        forgot_per_ip=settings.rate_limit_forgot_per_ip,
+        forgot_per_email=settings.rate_limit_forgot_per_email,
+    )
+
+
+SessionSettingsDep = Annotated[SessionSettings, Depends(get_session_settings)]
+TokenIssuerDep = Annotated[TokenIssuer, Depends(get_token_issuer)]
+ClockDep = Annotated[Clock, Depends(get_clock)]
+RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
+
+
+def get_login(
+    session: SessionDep,
+    issuer: TokenIssuerDep,
+    limiter: RateLimiterDep,
+    clock: ClockDep,
+    settings: SessionSettingsDep,
+) -> Login:
+    return Login(
+        hasher=Argon2PasswordHasher(),
+        limiter=limiter,
+        users=SqlUserRepository(session),
+        refresh_tokens=SqlRefreshTokenRepository(session),
+        issuer=issuer,
+        clock=clock,
+        settings=settings,
+    )
+
+
+def get_refresh_session(
+    session: SessionDep, issuer: TokenIssuerDep, clock: ClockDep, settings: SessionSettingsDep
+) -> RefreshSession:
+    return RefreshSession(
+        users=SqlUserRepository(session),
+        refresh_tokens=SqlRefreshTokenRepository(session),
+        issuer=issuer,
+        clock=clock,
+        settings=settings,
+    )
+
+
+def get_logout(session: SessionDep, clock: ClockDep) -> Logout:
+    return Logout(refresh_tokens=SqlRefreshTokenRepository(session), clock=clock)
+
+
+def get_request_password_reset(
+    session: SessionDep, limiter: RateLimiterDep, clock: ClockDep, settings: SessionSettingsDep
+) -> RequestPasswordReset:
+    return RequestPasswordReset(
+        users=SqlUserRepository(session),
+        reset_tokens=SqlPasswordResetTokenRepository(session),
+        limiter=limiter,
+        clock=clock,
+        settings=settings,
+    )
+
+
+def get_reset_password(session: SessionDep, clock: ClockDep) -> ResetPassword:
+    return ResetPassword(
+        users=SqlUserRepository(session),
+        reset_tokens=SqlPasswordResetTokenRepository(session),
+        refresh_tokens=SqlRefreshTokenRepository(session),
+        hasher=Argon2PasswordHasher(),
+        clock=clock,
+    )
+
+
+LoginDep = Annotated[Login, Depends(get_login)]
+RefreshSessionDep = Annotated[RefreshSession, Depends(get_refresh_session)]
+LogoutDep = Annotated[Logout, Depends(get_logout)]
+RequestPasswordResetDep = Annotated[RequestPasswordReset, Depends(get_request_password_reset)]
+ResetPasswordDep = Annotated[ResetPassword, Depends(get_reset_password)]

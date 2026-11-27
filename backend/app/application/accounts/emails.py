@@ -47,3 +47,30 @@ def account_exists_email(*, to: str, first_name: str, app_name: str) -> EmailMes
     return EmailMessage(
         to=to, subject=f"You already have a {app_name} account", text=text, html=html
     )
+
+
+def password_reset_link(frontend_base_url: str, token: str) -> str:
+    return f"{frontend_base_url.rstrip('/')}/reset-password?{urlencode({'token': token})}"
+
+
+def password_reset_email(
+    *, to: str, first_name: str, link: str, ttl_minutes: int, app_name: str
+) -> EmailMessage:
+    text = (
+        f"Hi {first_name},\n\n"
+        f"We received a request to reset your {app_name} password. Choose a new one here:\n\n"
+        f"{link}\n\n"
+        f"This link expires in {ttl_minutes} minutes and can be used once. Resetting your "
+        "password signs you out on all devices.\n\n"
+        "If you didn't ask for this, you can ignore this email; your password won't change.\n"
+    )
+    html = (
+        f"<p>Hi {escape(first_name)},</p>"
+        f"<p>We received a request to reset your {escape(app_name)} password.</p>"
+        f'<p><a href="{escape(link)}">Choose a new password</a></p>'
+        f"<p>This link expires in {ttl_minutes} minutes and can be used once. Resetting your "
+        "password signs you out on all devices.</p>"
+        "<p>If you didn't ask for this, you can ignore this email; your password won't "
+        "change.</p>"
+    )
+    return EmailMessage(to=to, subject=f"Reset your {app_name} password", text=text, html=html)

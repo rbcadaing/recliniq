@@ -146,3 +146,32 @@ async def test_rate_limited_returns_429_with_retry_after(app: FastAPI, client: A
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "120"
     assert response.json()["error"]["code"] == "too_many_requests"
+
+
+async def test_auth_errors_map_to_envelopes(app: FastAPI, client: AsyncClient) -> None:
+    from app.domain.errors import (
+        EmailNotVerifiedError,
+        InvalidCredentialsError,
+        InvalidRefreshTokenError,
+        NotAuthenticatedError,
+    )
+
+    cases = {
+        "credentials": (InvalidCredentialsError, 401, "invalid_credentials"),
+        "unverified": (EmailNotVerifiedError, 403, "email_not_verified"),
+        "refresh": (InvalidRefreshTokenError, 401, "invalid_refresh_token"),
+        "anonymous": (NotAuthenticatedError, 401, "not_authenticated"),
+    }
+    for name, (error, _, _) in cases.items():
+
+        async def raise_it(error: type[Exception] = error) -> None:
+            raise error
+
+        app.add_api_route(f"/api/v1/_test/{name}", raise_it)
+
+    for name, (_, status, code) in cases.items():
+        response = await client.get(f"/api/v1/_test/{name}")
+        assert response.status_code == status
+        assert response.json()["error"]["code"] == code
+        has_challenge = response.headers.get("WWW-Authenticate") == "Bearer"
+        assert has_challenge is (name == "anonymous")

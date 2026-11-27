@@ -48,3 +48,46 @@ class VerificationToken:
     expires_at: datetime
     used_at: datetime | None = None
     id: uuid.UUID = field(default_factory=uuid.uuid4)
+
+
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: uuid.UUID
+    role: Role
+
+
+@dataclass(frozen=True)
+class IssuedAccessToken:
+    token: str
+    expires_in: int  # seconds
+
+
+@dataclass
+class RefreshToken:
+    """One link in a session's rotation chain (``family_id``). Only the hash is stored."""
+
+    user_id: uuid.UUID
+    family_id: uuid.UUID
+    token_hash: str
+    expires_at: datetime
+    used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    id: uuid.UUID = field(default_factory=uuid.uuid4)
+
+
+@dataclass(frozen=True)
+class DoctorSummary:
+    specialization: Specialization
+    license_status: LicenseStatus
+
+
+@dataclass(frozen=True)
+class AccountProfile:
+    id: uuid.UUID
+    first_name: str
+    middle_name: str | None
+    last_name: str
+    email: str
+    role: Role
+    email_verified: bool
+    doctor: DoctorSummary | None = None

@@ -62,6 +62,26 @@ class RateLimitedError(AppError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class InvalidCredentialsError(AppError):
+    code = "invalid_credentials"
+    message = "Incorrect email or password."
+
+
+class EmailNotVerifiedError(AppError):
+    code = "email_not_verified"
+    message = "Please verify your email address before signing in."
+
+
+class InvalidRefreshTokenError(AppError):
+    code = "invalid_refresh_token"
+    message = "Your session has expired. Please sign in again."
+
+
+class NotAuthenticatedError(AppError):
+    code = "not_authenticated"
+    message = "Sign in to continue."
+
+
 class DependencyUnavailableError(AppError):
     code = "service_unavailable"
     message = "A required service is unavailable."

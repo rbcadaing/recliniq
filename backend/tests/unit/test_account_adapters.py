@@ -1,16 +1,26 @@
 import logging
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import jwt as pyjwt
 import pytest
+from argon2 import PasswordHasher as Argon2
 
 from app.application.accounts.emails import (
     account_exists_email,
+    password_reset_email,
+    password_reset_link,
     verification_email,
     verification_link,
 )
 from app.application.accounts.ports import EmailMessage
+from app.domain.accounts.entities import User
+from app.domain.accounts.values import Role
+from app.domain.errors import NotAuthenticatedError
 from app.infrastructure.accounts import mailer as mailer_module
 from app.infrastructure.accounts.hasher import Argon2PasswordHasher
+from app.infrastructure.accounts.jwt import JwtTokenIssuer
 from app.infrastructure.accounts.mailer import SmtpMailer, mask_email
 
 PASSWORD = "correct horse battery staple"
@@ -116,3 +126,114 @@ async def test_smtp_failure_is_logged_not_raised(caplog: pytest.LogCaptureFixtur
     assert failure["to"] == "j***@example.com"
     assert "secret-token-123" not in caplog.text
     assert "juan@example.com" not in caplog.text
+
+
+# --- US-01.3: JWT, rehash, reset email --------------------------------------------------
+
+SECRET = "s" * 48
+
+
+class _Clock:
+    def __init__(self, now: datetime) -> None:
+        self.current = now
+
+    def now(self) -> datetime:
+        return self.current
+
+
+def _user() -> User:
+    return User(
+        email="juan@example.com",
+        mobile="+639171234567",
+        password_hash="x",
+        first_name="Juan",
+        last_name="Dela Cruz",
+        role=Role.DOCTOR,
+        privacy_consent_at=datetime.now(UTC),
+        privacy_notice_version="v1",
+    )
+
+
+def test_access_token_round_trip_without_personal_data() -> None:
+    issuer = JwtTokenIssuer(secret=SECRET, ttl_minutes=15, clock=_Clock(datetime.now(UTC)))
+    user = _user()
+
+    issued = issuer.issue_access(user)
+    claims = issuer.decode_access(issued.token)
+
+    assert issued.expires_in == 900
+    assert claims.user_id == user.id
+    assert claims.role is Role.DOCTOR
+    raw = pyjwt.decode(issued.token, options={"verify_signature": False})
+    assert "juan" not in str(raw).lower()
+    assert set(raw) == {"sub", "role", "iss", "aud", "iat", "exp", "jti"}
+
+
+def test_expired_token_rejected() -> None:
+    clock = _Clock(datetime.now(UTC) - timedelta(minutes=16))
+    token = JwtTokenIssuer(secret=SECRET, ttl_minutes=15, clock=clock).issue_access(_user()).token
+    with pytest.raises(NotAuthenticatedError):
+        JwtTokenIssuer(
+            secret=SECRET, ttl_minutes=15, clock=_Clock(datetime.now(UTC))
+        ).decode_access(token)
+
+
+def test_tampered_wrong_secret_and_wrong_audience_rejected() -> None:
+    now = datetime.now(UTC)
+    issuer = JwtTokenIssuer(secret=SECRET, ttl_minutes=15, clock=_Clock(now))
+    token = issuer.issue_access(_user()).token
+    header, payload, signature = token.split(".")
+    tampered = f"{header}.{payload}.{signature[:-2]}AA"
+    other_secret = JwtTokenIssuer(secret="o" * 48, ttl_minutes=15, clock=_Clock(now))
+    wrong_aud = pyjwt.encode(
+        {
+            "sub": str(uuid.uuid4()),
+            "role": "doctor",
+            "iss": "recliniq",
+            "aud": "other",
+            "iat": now,
+            "exp": now + timedelta(minutes=5),
+        },
+        SECRET,
+        algorithm="HS256",
+    )
+    none_alg = pyjwt.encode(
+        {
+            "sub": str(uuid.uuid4()),
+            "role": "admin",
+            "iss": "recliniq",
+            "aud": "recliniq-api",
+            "iat": now,
+            "exp": now + timedelta(minutes=5),
+        },
+        None,
+        algorithm="none",
+    )
+
+    for bad in (tampered, wrong_aud, none_alg, "not-a-jwt", ""):
+        with pytest.raises(NotAuthenticatedError):
+            issuer.decode_access(bad)
+    with pytest.raises(NotAuthenticatedError):
+        other_secret.decode_access(token)
+
+
+async def test_needs_rehash_for_weaker_parameters() -> None:
+    weak = Argon2(time_cost=1, memory_cost=8 * 1024, parallelism=1)
+    hasher = Argon2PasswordHasher()
+
+    weak_hash = weak.hash(PASSWORD)
+    assert hasher.needs_rehash(weak_hash)
+    assert await hasher.verify(weak_hash, PASSWORD)  # still verifies before the upgrade
+    assert not hasher.needs_rehash(await hasher.hash(PASSWORD))
+
+
+def test_password_reset_email() -> None:
+    link = password_reset_link("http://localhost:5173/", "t0k-_")
+    assert link == "http://localhost:5173/reset-password?token=t0k-_"
+    message = password_reset_email(
+        to="juan@example.com", first_name="<Juan>", link=link, ttl_minutes=60, app_name="RecliniQ"
+    )
+    assert link in message.text
+    assert f'href="{link}"' in message.html
+    assert "&lt;Juan&gt;" in message.html
+    assert "60 minutes" in message.text

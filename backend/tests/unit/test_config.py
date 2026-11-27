@@ -65,3 +65,44 @@ def test_invalid_rate_limit_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("RATE_LIMIT_SIGNUP_PER_IP", "0")
     with pytest.raises(ConfigError, match="RATE_LIMIT_SIGNUP_PER_IP"):
         load_settings(_env_file=None)
+
+
+def test_session_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    settings = load_settings(_env_file=None)
+    assert settings.access_token_ttl_minutes == 15
+    assert settings.refresh_token_ttl_days == 30
+    assert settings.password_reset_ttl_minutes == 60
+    assert settings.rate_limit_login_window_seconds == 900
+    assert len(settings.jwt_secret.get_secret_value()) >= 32  # dev default in local
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [None, "too-short-secret", "local-dev-only-jwt-secret-change-me-0000"],
+    ids=["missing", "short", "dev-default"],
+)
+def test_production_requires_strong_jwt_secret(
+    monkeypatch: pytest.MonkeyPatch, secret: str | None
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    monkeypatch.setenv("APP_ENV", "production")
+    if secret is None:
+        monkeypatch.delenv("JWT_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("JWT_SECRET", secret)
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(_env_file=None)
+
+    message = str(exc_info.value)
+    assert "JWT_SECRET" in message
+    if secret:
+        assert secret not in message
+
+
+def test_production_accepts_strong_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "x" * 48)
+    assert load_settings(_env_file=None).jwt_secret.get_secret_value() == "x" * 48
