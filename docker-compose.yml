@@ -30,6 +30,7 @@ services:
       FRONTEND_BASE_URL: http://localhost:${FRONTEND_PORT:-5173}
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
+      JWT_SECRET: ${JWT_SECRET:-local-compose-jwt-secret-not-for-production-use}
       WATCHFILES_FORCE_POLLING: ${DEV_WATCH_POLLING:-true}
     ports:
       - "${BACKEND_PORT:-8000}:8000"

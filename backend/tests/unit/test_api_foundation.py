@@ -172,3 +172,28 @@ async def test_openapi_documents_account_endpoints(client: AsyncClient) -> None:
     assert set(confirm["responses"]) >= {"200", "400", "422"}
     resend = paths["/api/v1/auth/email-verification/resend"]["post"]
     assert set(resend["responses"]) >= {"202", "422", "429"}
+
+
+async def test_openapi_documents_session_endpoints(client: AsyncClient) -> None:
+    document = (await client.get("/api/v1/openapi.json")).json()
+    paths = document["paths"]
+
+    assert set(paths["/api/v1/auth/login"]["post"]["responses"]) >= {
+        "200",
+        "401",
+        "403",
+        "422",
+        "429",
+    }
+    assert set(paths["/api/v1/auth/refresh"]["post"]["responses"]) >= {"200", "401"}
+    assert "204" in paths["/api/v1/auth/logout"]["post"]["responses"]
+    assert set(paths["/api/v1/auth/password/forgot"]["post"]["responses"]) >= {"202", "429"}
+    assert set(paths["/api/v1/auth/password/reset"]["post"]["responses"]) >= {"200", "400", "422"}
+
+    me = paths["/api/v1/me"]["get"]
+    assert me["security"] == [{"BearerAuth": []}]
+    assert "401" in me["responses"]
+    scheme = document["components"]["securitySchemes"]["BearerAuth"]
+    assert scheme == {**scheme, "type": "http", "scheme": "bearer"}
+    # Public endpoints don't require a token.
+    assert "security" not in paths["/api/v1/auth/login"]["post"]

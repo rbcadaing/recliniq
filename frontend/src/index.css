@@ -202,3 +202,53 @@ a {
   background: transparent;
   border: 1px solid var(--accent);
 }
+
+.layout__nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.link-button {
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.banner {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.banner--pending {
+  border-left-color: #b58105;
+}
+
+.banner--rejected {
+  border-left-color: var(--bad);
+}
+
+.banner--approved {
+  border-left-color: var(--ok);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 16px;
+}
+
+.details dt {
+  color: var(--muted);
+}
+
+.details dd {
+  margin: 0;
+}

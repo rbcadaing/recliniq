@@ -6,10 +6,14 @@ Every value here must also be documented in ``backend/.env.example``.
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
+
+# Only acceptable in local/test. Anywhere else, startup fails unless JWT_SECRET is set properly.
+DEV_JWT_SECRET = "local-dev-only-jwt-secret-change-me-0000"  # noqa: S105
+MIN_JWT_SECRET_BYTES = 32
 
 
 class ConfigError(RuntimeError):
@@ -57,6 +61,17 @@ class Settings(BaseSettings):
     rate_limit_signup_per_email: int = Field(default=3, ge=1)
     rate_limit_resend_per_ip: int = Field(default=10, ge=1)
     rate_limit_resend_per_email: int = Field(default=3, ge=1)
+    rate_limit_login_window_seconds: int = Field(default=900, ge=1)
+    rate_limit_login_per_ip: int = Field(default=30, ge=1)
+    rate_limit_login_per_email: int = Field(default=10, ge=1)
+    rate_limit_forgot_per_ip: int = Field(default=10, ge=1)
+    rate_limit_forgot_per_email: int = Field(default=3, ge=1)
+
+    # Sessions. JWT_SECRET signs access tokens (HS256); required outside local/test.
+    jwt_secret: SecretStr = Field(default=SecretStr(DEV_JWT_SECRET), validate_default=True)
+    access_token_ttl_minutes: int = Field(default=15, ge=1)
+    refresh_token_ttl_days: int = Field(default=30, ge=1)
+    password_reset_ttl_minutes: int = Field(default=60, ge=1)
 
     @field_validator("database_url")
     @classmethod
@@ -64,6 +79,19 @@ class Settings(BaseSettings):
         if not value.get_secret_value().startswith("postgresql+asyncpg://"):
             raise ValueError(
                 "must be a PostgreSQL URL using the asyncpg driver (postgresql+asyncpg://...)"
+            )
+        return value
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _strong_secret_outside_dev(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
+        if info.data.get("app_env") in ("local", "test"):
+            return value
+        secret = value.get_secret_value()
+        if secret == DEV_JWT_SECRET or len(secret.encode()) < MIN_JWT_SECRET_BYTES:
+            raise ValueError(
+                f"must be set to a random secret of at least {MIN_JWT_SECRET_BYTES} bytes "
+                "outside local/test"
             )
         return value
 

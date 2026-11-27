@@ -28,7 +28,7 @@ export function VerifyEmailPage() {
           Thanks! Your email is verified. Our team will review your PRC license; until then your
           account shows as <strong>Pending verification</strong>.
         </p>
-        <Link to="/">Go to the home page</Link>
+        <Link to="/login">Sign in</Link>
       </section>
     )
   }

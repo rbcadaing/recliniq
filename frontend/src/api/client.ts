@@ -3,6 +3,9 @@
  * URL, request IDs, and error normalization stay consistent.
  */
 
+import { refreshSession } from '../auth/refresh'
+import { getAccessToken } from '../auth/session'
+
 export type ApiErrorKind = 'http' | 'network'
 
 interface ErrorEnvelope {
@@ -74,19 +77,45 @@ function newRequestId(): string {
   return globalThis.crypto.randomUUID().replaceAll('-', '')
 }
 
+/** Optional session hooks: attach the access token and recover once from an expired one. */
+export interface AuthHooks {
+  getAccessToken(): string | null
+  /** Refresh the session; resolves true if a new access token is available. */
+  refresh(): Promise<boolean>
+}
+
+// Auth endpoints answer 401 for wrong credentials or dead refresh tokens; never retry those.
+const AUTH_PATH = /^\/api\/v1\/auth\//
+
 export function createApiClient(
   baseUrl: string,
   fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args),
+  auth?: AuthHooks,
 ): ApiClient {
   const root = baseUrl.replace(/\/+$/, '')
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    try {
+      return await send<T>(path, init)
+    } catch (error) {
+      const canRetry =
+        auth && error instanceof ApiError && error.status === 401 && !AUTH_PATH.test(path)
+      if (canRetry && (await auth.refresh())) return send<T>(path, init)
+      throw error
+    }
+  }
+
+  async function send<T>(path: string, init: RequestInit): Promise<T> {
     const requestId = newRequestId()
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
     headers.set(REQUEST_ID_HEADER, requestId)
     if (init.body !== undefined && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json')
+    }
+    const accessToken = auth?.getAccessToken()
+    if (accessToken && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${accessToken}`)
     }
 
     let response: Response
@@ -143,4 +172,11 @@ export function createApiClient(
   }
 }
 
-export const api = createApiClient(import.meta.env.VITE_API_BASE_URL ?? '')
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? ''
+
+/** The app-wide client: sends the session's access token and refreshes it once on 401. */
+export const api = createApiClient(API_BASE_URL, undefined, {
+  // Wrapped so the session modules are only touched at call time (they import this module).
+  getAccessToken: () => getAccessToken(),
+  refresh: () => refreshSession(),
+})

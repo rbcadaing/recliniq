@@ -15,7 +15,11 @@ from app.domain.errors import (
     ConflictError,
     DependencyUnavailableError,
     DomainValidationError,
+    EmailNotVerifiedError,
+    InvalidCredentialsError,
+    InvalidRefreshTokenError,
     InvalidTokenError,
+    NotAuthenticatedError,
     NotFoundError,
     PermissionDeniedError,
     RateLimitedError,
@@ -33,6 +37,10 @@ _STATUS_BY_ERROR: dict[type[AppError], int] = {
     InvalidTokenError: 400,
     TokenExpiredError: 400,
     RateLimitedError: 429,
+    InvalidCredentialsError: 401,
+    InvalidRefreshTokenError: 401,
+    NotAuthenticatedError: 401,
+    EmailNotVerifiedError: 403,
 }
 
 _CODE_BY_STATUS: dict[int, str] = {
@@ -84,6 +92,8 @@ async def handle_app_error(request: Request, exc: Exception) -> JSONResponse:
     headers = None
     if isinstance(exc, RateLimitedError):
         headers = {"Retry-After": str(exc.retry_after_seconds)}
+    elif isinstance(exc, NotAuthenticatedError):
+        headers = {"WWW-Authenticate": "Bearer"}
     return error_response(
         request,
         status_code=_status_for(exc),

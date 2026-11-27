@@ -41,6 +41,8 @@ docker compose up --build
 
 Every setting is documented in an example file. Real `.env` files are git-ignored, so never commit secrets.
 
+Outside local development, set `JWT_SECRET` to at least 32 random bytes (`python -c "import secrets; print(secrets.token_urlsafe(48))"`). The backend refuses to start in `staging` or `production` without it.
+
 | File | Used by |
 | --- | --- |
 | `.env.example` → `.env` | Docker Compose (DB credentials, ports, polling) |

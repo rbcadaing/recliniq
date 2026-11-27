@@ -73,6 +73,32 @@ def rate_limit_bucket(action: str, kind: str, value: str) -> str:
     return f"{action}:{kind}:{digest}"
 
 
+async def enforce_rate_limit(
+    limiter: RateLimiter,
+    action: str,
+    *,
+    client_ip: str,
+    email: str,
+    per_ip: int,
+    per_email: int,
+    window_seconds: int,
+) -> None:
+    """Count one attempt per IP and per email; raise ``RateLimitedError`` if either is over."""
+    decisions = [
+        await limiter.hit(
+            rate_limit_bucket(action, "ip", client_ip), limit=per_ip, window_seconds=window_seconds
+        ),
+        await limiter.hit(
+            rate_limit_bucket(action, "email", email),
+            limit=per_email,
+            window_seconds=window_seconds,
+        ),
+    ]
+    denied = [d for d in decisions if not d.allowed]
+    if denied:
+        raise RateLimitedError(max(d.retry_after_seconds for d in denied))
+
+
 class _AccountService:
     def __init__(
         self,
@@ -92,18 +118,15 @@ class _AccountService:
     async def _enforce_rate_limit(
         self, action: str, *, client_ip: str, email: str, per_ip: int, per_email: int
     ) -> None:
-        window = self._settings.rate_limit_window_seconds
-        decisions = [
-            await self._limiter.hit(
-                rate_limit_bucket(action, "ip", client_ip), limit=per_ip, window_seconds=window
-            ),
-            await self._limiter.hit(
-                rate_limit_bucket(action, "email", email), limit=per_email, window_seconds=window
-            ),
-        ]
-        denied = [d for d in decisions if not d.allowed]
-        if denied:
-            raise RateLimitedError(max(d.retry_after_seconds for d in denied))
+        await enforce_rate_limit(
+            self._limiter,
+            action,
+            client_ip=client_ip,
+            email=email,
+            per_ip=per_ip,
+            per_email=per_email,
+            window_seconds=self._settings.rate_limit_window_seconds,
+        )
 
     async def _issue_verification(self, user: User) -> EmailMessage:
         """Invalidate earlier unused links and return a verification email with a new one."""

@@ -2,16 +2,27 @@
 
 import uuid
 from datetime import datetime
+from typing import Any, ClassVar
 
 from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.domain.accounts.entities import DoctorProfile, Specialization, User, VerificationToken
-from app.domain.accounts.values import Role
+from app.domain.accounts.entities import (
+    AccountProfile,
+    DoctorProfile,
+    DoctorSummary,
+    RefreshToken,
+    Specialization,
+    User,
+    VerificationToken,
+)
+from app.domain.accounts.values import LicenseStatus, Role
 from app.domain.errors import FieldConflictError
 from app.infrastructure.accounts.models import (
     DoctorProfileModel,
     EmailVerificationTokenModel,
+    PasswordResetTokenModel,
+    RefreshTokenModel,
     SpecializationModel,
     UserModel,
 )
@@ -104,6 +115,43 @@ class SqlUserRepository(SoftDeleteRepository[UserModel]):
             update(UserModel).where(UserModel.id == user_id).values(email_verified_at=at)
         )
 
+    async def update_password(self, user_id: uuid.UUID, password_hash: str) -> None:
+        await self.session.execute(
+            update(UserModel).where(UserModel.id == user_id).values(password_hash=password_hash)
+        )
+
+    async def find_profile(self, user_id: uuid.UUID) -> AccountProfile | None:
+        statement = (
+            select(UserModel, DoctorProfileModel, SpecializationModel)
+            .outerjoin(DoctorProfileModel, DoctorProfileModel.user_id == UserModel.id)
+            .outerjoin(
+                SpecializationModel, SpecializationModel.id == DoctorProfileModel.specialization_id
+            )
+            .where(UserModel.id == user_id)
+        )
+        row = (await self.session.execute(statement)).first()
+        if row is None:
+            return None
+        user, profile, specialization = row
+        doctor = None
+        if profile is not None and specialization is not None:
+            doctor = DoctorSummary(
+                specialization=Specialization(
+                    id=specialization.id, code=specialization.code, name=specialization.name
+                ),
+                license_status=LicenseStatus(profile.license_status),
+            )
+        return AccountProfile(
+            id=user.id,
+            first_name=user.first_name,
+            middle_name=user.middle_name,
+            last_name=user.last_name,
+            email=user.email,
+            role=Role(user.role),
+            email_verified=user.email_verified_at is not None,
+            doctor=doctor,
+        )
+
 
 class SqlSpecializationRepository(SoftDeleteRepository[SpecializationModel]):
     model = SpecializationModel
@@ -118,12 +166,14 @@ class SqlSpecializationRepository(SoftDeleteRepository[SpecializationModel]):
         return await self.get(specialization_id) is not None
 
 
-class SqlTokenRepository(SoftDeleteRepository[EmailVerificationTokenModel]):
-    model = EmailVerificationTokenModel
+class _SingleUseTokenRepository(SoftDeleteRepository[Any]):
+    """Shared by email verification and password reset tokens (same table shape)."""
+
+    model: ClassVar[type[EmailVerificationTokenModel] | type[PasswordResetTokenModel]]
 
     async def add(self, token: VerificationToken) -> None:
         self.session.add(
-            EmailVerificationTokenModel(
+            self.model(
                 id=token.id,
                 user_id=token.user_id,
                 token_hash=token.token_hash,
@@ -134,11 +184,9 @@ class SqlTokenRepository(SoftDeleteRepository[EmailVerificationTokenModel]):
         await self.session.flush()
 
     async def find_by_hash(self, token_hash: str) -> VerificationToken | None:
-        found = await self.session.scalar(
-            select(EmailVerificationTokenModel).where(
-                EmailVerificationTokenModel.token_hash == token_hash
-            )
-        )
+        found: (
+            EmailVerificationTokenModel | PasswordResetTokenModel | None
+        ) = await self.session.scalar(select(self.model).where(self.model.token_hash == token_hash))
         if found is None:
             return None
         return VerificationToken(
@@ -151,18 +199,74 @@ class SqlTokenRepository(SoftDeleteRepository[EmailVerificationTokenModel]):
 
     async def mark_used(self, token_id: uuid.UUID, at: datetime) -> None:
         await self.session.execute(
-            update(EmailVerificationTokenModel)
-            .where(EmailVerificationTokenModel.id == token_id)
-            .values(used_at=at)
+            update(self.model).where(self.model.id == token_id).values(used_at=at)
         )
 
     async def invalidate_unused(self, user_id: uuid.UUID) -> None:
         # Superseded tokens are soft-deleted (system actor), so lookups no longer see them.
         unused = await self.session.scalars(
-            select(EmailVerificationTokenModel).where(
-                EmailVerificationTokenModel.user_id == user_id,
-                EmailVerificationTokenModel.used_at.is_(None),
-            )
+            select(self.model).where(self.model.user_id == user_id, self.model.used_at.is_(None))
         )
         for token in unused.all():
             await self.soft_delete(token, actor_id=None)
+
+
+class SqlVerificationTokenRepository(_SingleUseTokenRepository):
+    model = EmailVerificationTokenModel
+
+
+class SqlPasswordResetTokenRepository(_SingleUseTokenRepository):
+    model = PasswordResetTokenModel
+
+
+def _to_refresh(model: RefreshTokenModel) -> RefreshToken:
+    return RefreshToken(
+        id=model.id,
+        user_id=model.user_id,
+        family_id=model.family_id,
+        token_hash=model.token_hash,
+        expires_at=model.expires_at,
+        used_at=model.used_at,
+        revoked_at=model.revoked_at,
+    )
+
+
+class SqlRefreshTokenRepository(SoftDeleteRepository[RefreshTokenModel]):
+    model = RefreshTokenModel
+
+    async def add(self, token: RefreshToken) -> None:
+        self.session.add(
+            RefreshTokenModel(
+                id=token.id,
+                user_id=token.user_id,
+                family_id=token.family_id,
+                token_hash=token.token_hash,
+                expires_at=token.expires_at,
+            )
+        )
+        await self.session.flush()
+
+    async def find_by_hash(self, token_hash: str) -> RefreshToken | None:
+        found = await self.session.scalar(
+            select(RefreshTokenModel).where(RefreshTokenModel.token_hash == token_hash)
+        )
+        return _to_refresh(found) if found else None
+
+    async def mark_used(self, token_id: uuid.UUID, at: datetime) -> None:
+        await self.session.execute(
+            update(RefreshTokenModel).where(RefreshTokenModel.id == token_id).values(used_at=at)
+        )
+
+    async def revoke_family(self, family_id: uuid.UUID, at: datetime) -> None:
+        await self.session.execute(
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.family_id == family_id, RefreshTokenModel.revoked_at.is_(None))
+            .values(revoked_at=at)
+        )
+
+    async def revoke_all_for_user(self, user_id: uuid.UUID, at: datetime) -> None:
+        await self.session.execute(
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.user_id == user_id, RefreshTokenModel.revoked_at.is_(None))
+            .values(revoked_at=at)
+        )
