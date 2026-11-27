@@ -3,6 +3,7 @@ import { render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
+import { AuthProvider } from '../auth/AuthProvider'
 import { routes } from '../routes'
 
 /**
@@ -19,7 +20,9 @@ export function renderAt(path: string, state?: unknown) {
   const view = render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
       </QueryClientProvider>
     </StrictMode>,
   )
