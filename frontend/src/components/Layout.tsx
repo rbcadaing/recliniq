@@ -7,6 +7,9 @@ export function Layout() {
         <Link to="/" className="layout__brand">
           RecliniQ
         </Link>
+        <nav className="layout__nav" aria-label="Main">
+          <Link to="/signup/doctor">Sign up as a doctor</Link>
+        </nav>
       </header>
       <main className="layout__main">
         <Outlet />

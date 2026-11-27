@@ -145,3 +145,30 @@ async def test_openapi_document_lists_v1_endpoints(client: AsyncClient) -> None:
     assert "/api/v1/health" in document["paths"]
     assert "/api/v1/health/ready" in document["paths"]
     assert all(path.startswith("/api/v1/") for path in document["paths"])
+
+
+async def test_openapi_documents_account_endpoints(client: AsyncClient) -> None:
+    document = (await client.get("/api/v1/openapi.json")).json()
+    paths = document["paths"]
+
+    assert "get" in paths["/api/v1/specializations"]
+    signup = paths["/api/v1/auth/doctors/signup"]["post"]
+    assert set(signup["responses"]) >= {"202", "409", "422", "429"}
+    body_ref = signup["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    body = document["components"]["schemas"][body_ref.rsplit("/", 1)[-1]]
+    assert set(body["required"]) >= {
+        "first_name",
+        "last_name",
+        "email",
+        "mobile",
+        "password",
+        "specialization_id",
+        "prc_license_no",
+        "privacy_consent",
+    }
+    assert body["properties"]["password"]["format"] == "password"
+
+    confirm = paths["/api/v1/auth/email-verification/confirm"]["post"]
+    assert set(confirm["responses"]) >= {"200", "400", "422"}
+    resend = paths["/api/v1/auth/email-verification/resend"]["post"]
+    assert set(resend["responses"]) >= {"202", "422", "429"}

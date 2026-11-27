@@ -33,3 +33,35 @@ def test_database_url_is_masked_in_repr(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("DATABASE_URL", f"postgresql+asyncpg://u:{SECRET}@db/app")
     settings = load_settings(_env_file=None)
     assert SECRET not in repr(settings)
+
+
+def test_account_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    settings = load_settings(_env_file=None)
+    assert settings.frontend_base_url == "http://localhost:5173"
+    assert settings.smtp_port == 1025
+    assert settings.smtp_password is None
+    assert settings.email_verification_ttl_hours == 24
+    assert settings.rate_limit_window_seconds == 3600
+    assert settings.rate_limit_signup_per_ip == 5
+    assert settings.rate_limit_signup_per_email == 3
+    assert settings.rate_limit_resend_per_ip == 10
+    assert settings.rate_limit_resend_per_email == 3
+
+
+def test_account_settings_overrides_and_secret_masking(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    monkeypatch.setenv("SMTP_HOST", "mailpit")
+    monkeypatch.setenv("SMTP_PASSWORD", SECRET)
+    monkeypatch.setenv("RATE_LIMIT_SIGNUP_PER_IP", "50")
+    settings = load_settings(_env_file=None)
+    assert settings.smtp_host == "mailpit"
+    assert settings.rate_limit_signup_per_ip == 50
+    assert SECRET not in repr(settings)
+
+
+def test_invalid_rate_limit_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db/app")
+    monkeypatch.setenv("RATE_LIMIT_SIGNUP_PER_IP", "0")
+    with pytest.raises(ConfigError, match="RATE_LIMIT_SIGNUP_PER_IP"):
+        load_settings(_env_file=None)

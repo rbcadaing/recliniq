@@ -1,13 +1,29 @@
 """FastAPI dependencies that wire infrastructure into application services."""
 
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.accounts.ports import Clock, Mailer, RateLimiter, SpecializationRepository
+from app.application.accounts.services import (
+    AccountSettings,
+    ConfirmEmail,
+    ResendVerification,
+    SignUpDoctor,
+)
 from app.application.health.service import DatabaseHealthCheck, HealthService
 from app.core.config import Settings
+from app.infrastructure.accounts.hasher import Argon2PasswordHasher
+from app.infrastructure.accounts.mailer import SmtpMailer
+from app.infrastructure.accounts.rate_limiter import PostgresRateLimiter
+from app.infrastructure.accounts.repositories import (
+    SqlSpecializationRepository,
+    SqlTokenRepository,
+    SqlUserRepository,
+)
+from app.infrastructure.clock import SystemClock
 from app.infrastructure.db.database import Database, SqlDatabaseHealthCheck
 
 
@@ -44,3 +60,92 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 HealthServiceDep = Annotated[HealthService, Depends(get_health_service)]
 DatabaseHealthCheckDep = Annotated[DatabaseHealthCheck, Depends(get_database_health_check)]
+
+
+# --- Accounts ---------------------------------------------------------------------------
+
+
+def get_clock() -> Clock:
+    return SystemClock()
+
+
+def get_mailer(settings: Annotated[Settings, Depends(get_app_settings)]) -> Mailer:
+    password = settings.smtp_password.get_secret_value() if settings.smtp_password else None
+    return SmtpMailer(
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        sender=settings.mail_from,
+        username=settings.smtp_username,
+        password=password,
+        start_tls=settings.smtp_starttls,
+    )
+
+
+def get_rate_limiter(
+    database: Annotated[Database, Depends(get_database)],
+    clock: Annotated[Clock, Depends(get_clock)],
+) -> RateLimiter:
+    return PostgresRateLimiter(database.engine, clock)
+
+
+def get_account_settings(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> AccountSettings:
+    return AccountSettings(
+        app_name=settings.app_name,
+        frontend_base_url=settings.frontend_base_url,
+        verification_ttl_hours=settings.email_verification_ttl_hours,
+        privacy_notice_version=settings.privacy_notice_version,
+        rate_limit_window_seconds=settings.rate_limit_window_seconds,
+        signup_per_ip=settings.rate_limit_signup_per_ip,
+        signup_per_email=settings.rate_limit_signup_per_email,
+        resend_per_ip=settings.rate_limit_resend_per_ip,
+        resend_per_email=settings.rate_limit_resend_per_email,
+    )
+
+
+def get_specialization_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SpecializationRepository:
+    return SqlSpecializationRepository(session)
+
+
+def _account_ports(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    clock: Annotated[Clock, Depends(get_clock)],
+    settings: Annotated[AccountSettings, Depends(get_account_settings)],
+) -> dict[str, Any]:
+    return {
+        "users": SqlUserRepository(session),
+        "tokens": SqlTokenRepository(session),
+        "limiter": limiter,
+        "clock": clock,
+        "settings": settings,
+    }
+
+
+def get_sign_up_doctor(
+    ports: Annotated[dict[str, Any], Depends(_account_ports)],
+    specializations: Annotated[SpecializationRepository, Depends(get_specialization_repository)],
+) -> SignUpDoctor:
+    return SignUpDoctor(specializations=specializations, hasher=Argon2PasswordHasher(), **ports)
+
+
+def get_confirm_email(ports: Annotated[dict[str, Any], Depends(_account_ports)]) -> ConfirmEmail:
+    return ConfirmEmail(**ports)
+
+
+def get_resend_verification(
+    ports: Annotated[dict[str, Any], Depends(_account_ports)],
+) -> ResendVerification:
+    return ResendVerification(**ports)
+
+
+MailerDep = Annotated[Mailer, Depends(get_mailer)]
+SpecializationRepositoryDep = Annotated[
+    SpecializationRepository, Depends(get_specialization_repository)
+]
+SignUpDoctorDep = Annotated[SignUpDoctor, Depends(get_sign_up_doctor)]
+ConfirmEmailDep = Annotated[ConfirmEmail, Depends(get_confirm_email)]
+ResendVerificationDep = Annotated[ResendVerification, Depends(get_resend_verification)]

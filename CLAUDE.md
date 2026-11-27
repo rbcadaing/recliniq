@@ -59,6 +59,12 @@ Key conventions:
   - Deleted rows are filtered out of all ORM selects by a session-wide listener; use `.execution_options(include_deleted=True)` to see them.
   - `session.delete()` and bulk `delete()` raise `HardDeleteForbiddenError`. Use `SoftDeleteRepository.soft_delete()` / `restore()` instead.
   - Use `soft_unique_index(...)` instead of `unique=True` on soft-deletable tables.
+  - `rate_limit_counters` is the one exempt table (`SOFT_DELETE_EXEMPT_TABLES`).
+- **Accounts feature is the ports-and-adapters template** (`backend/README.md` → Accounts):
+  - Domain dataclasses are separate from ORM models; protocols live in `application/accounts/ports.py`; adapters in `infrastructure/accounts/`; wiring in `presentation/dependencies.py`.
+  - Services return emails to send, and routes deliver them via `BackgroundTasks`.
+  - Doctor sign-up must not reveal whether an email is registered. Keep every non-202 check *before* the email lookup in `SignUpDoctor`.
+- Tests: `tests/conftest.py` configures app logging per session, so use `caplog` (not structlog's `capture_logs`) to assert on log events. API integration tests override `get_session`, `get_mailer` (`InMemoryMailer`), and `get_clock`.
 
 Tests: `tests/conftest.py` gives unit tests an app pointed at an unroutable DB (`127.0.0.1:1`) so accidental DB access fails fast. `tests/integration/` is auto-marked `integration` and skipped without `TEST_DATABASE_URL`; it migrates the DB once per session and wraps each test in a rolled-back transaction (`db_session`, `integration_client` fixtures). Use a disposable DB — migrations run against it. pytest-asyncio is in auto mode with session-scoped loops.
 
@@ -66,12 +72,15 @@ Tests: `tests/conftest.py` gives unit tests an app pointed at an unroutable DB (
 
 - `src/api/client.ts` is the single entry point for backend calls: `createApiClient(baseUrl)` / `api` adds `X-Request-ID`, and normalizes failures into `ApiError` (`kind: 'http' | 'network'`, `code`, `status`, `requestId`) by parsing the backend error envelope. Per-resource modules (e.g. `api/health.ts`) wrap it and accept an injectable `ApiClient` for testing. Base URL comes from `VITE_API_BASE_URL`.
 - Routes are a `RouteObject[]` in `src/routes.tsx` (nested under `Layout`). Server state uses TanStack Query.
-- Tests use `renderAt(path)` from `src/test/render.tsx`, which renders the real route tree in a memory router with a non-retrying `QueryClient`.
+- Tests use `renderAt(path, state?)` from `src/test/render.tsx`, which renders the real route tree in a memory router with a non-retrying `QueryClient`, inside `StrictMode`. Stub the backend with `mockApi({'POST /api/v1/...': () => json(...)})` from `src/test/mockApi.ts`.
+- Account forms (`src/features/accounts/`): validators mirror the backend rules, and errors are keyed by backend field name. `fieldErrorsFrom()` maps 422/409 responses onto fields. When passing API functions to `useMutation`, wrap them (`(x) => fn(x)`), because TanStack passes a context second argument.
 
 ## Workflow: OpenSpec
 
 Work is spec-driven via OpenSpec (`openspec/`): current capability specs in `openspec/specs/`, active changes in `openspec/changes/`, completed ones in `openspec/changes/archive/`. Use the `opsx:*` / `openspec-*` skills (propose → apply → archive) for feature work. Branches follow `feature/us-<id>-<slug>` with user-story IDs (e.g. US-00.1) referenced in commits; the main branch is `master`.
 
 ## Environment notes
+
+The local stack includes Mailpit (web inbox http://localhost:8025); every email the backend sends lands there.
 
 Docker bind mounts on Windows/macOS need file polling (`DEV_WATCH_POLLING=true`, the default); set it to `false` on Linux. Ports are configurable via `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT` in the root `.env`.

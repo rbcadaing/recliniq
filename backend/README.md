@@ -81,3 +81,24 @@ Rows are never physically deleted (US-00.2). Deleting a record sets `deleted_at`
 - **Uniqueness:** use `soft_unique_index("uq_things_code_active", "code")` in `__table_args__` instead of `unique=True` or `UniqueConstraint`, so deleted rows don't block new ones. Upserts must repeat the predicate: `ON CONFLICT (code) WHERE deleted_at IS NULL`.
 - **No automatic cascade.** Soft-deleting a parent leaves its children untouched. If a feature needs a cascade, its service soft-deletes the children explicitly.
 - **Maintenance override** (for operators only; app code never sets it): inside a transaction, run `SET LOCAL recliniq.allow_hard_delete = 'on'` before the `DELETE`.
+
+## Accounts (doctor sign-up and email verification)
+
+The first feature built with ports and adapters; use it as the template.
+
+```
+domain/accounts/          values.py (Role, LicenseStatus, parse_email / parse_ph_mobile /
+                          parse_prc_license), passwords.py (+ common_passwords.txt), entities.py
+application/accounts/     ports.py (Protocols), services.py (SignUpDoctor, ConfirmEmail,
+                          ResendVerification), emails.py (templates)
+infrastructure/accounts/  models.py (ORM), repositories.py, hasher.py (Argon2id), mailer.py
+                          (SmtpMailer, InMemoryMailer), rate_limiter.py (PostgresRateLimiter)
+presentation/api/v1/      auth.py, specializations.py; wiring in presentation/dependencies.py
+```
+
+- **Domain entities and ORM models are separate.** Repositories map between them, so `domain/` and `application/` never import SQLAlchemy.
+- **Services return the emails to send instead of sending them.** Routes deliver them with `BackgroundTasks` after the response, so delivery can't fail or slow the request. Mailer failures are logged with a masked address and never raised.
+- **Sign-up never reveals whether an email is registered.** Every non-202 outcome (422, 409 on mobile or PRC, 429) is decided before the email is looked up. A registered email gets the same 202, and its owner gets an email instead.
+- **Rate limiting:** `PostgresRateLimiter.hit(bucket, limit=, window_seconds=)` uses fixed windows in `rate_limit_counters`. Buckets are `action:kind:sha256(value)` (from `rate_limit_bucket()`), so no raw IP or email is stored. It commits in its own transaction, so attempts count even when the request fails. The table is the soft-delete exemption, and old windows are purged opportunistically. The client IP is `request.client.host`; trusted-proxy handling is still to do.
+- **Error field names:** request validation reports `body.<field>`, while service errors (`FieldConflictError`, unknown specialization) report `<field>`. Clients should match on the last segment.
+- **Local email:** everything goes to Mailpit (http://localhost:8025). Tests override `get_mailer` with `InMemoryMailer`, and API integration tests also override `get_session` with the rolled-back test session.

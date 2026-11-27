@@ -20,6 +20,8 @@ export class ApiError extends Error {
   readonly code: string
   readonly details: unknown
   readonly requestId: string | undefined
+  /** Seconds to wait before retrying, from the `Retry-After` header (429 responses). */
+  readonly retryAfter: number | undefined
 
   constructor(options: {
     kind: ApiErrorKind
@@ -28,6 +30,7 @@ export class ApiError extends Error {
     status?: number
     details?: unknown
     requestId?: string
+    retryAfter?: number
     cause?: unknown
   }) {
     super(options.message, { cause: options.cause })
@@ -37,11 +40,14 @@ export class ApiError extends Error {
     this.code = options.code
     this.details = options.details
     this.requestId = options.requestId
+    this.retryAfter = options.retryAfter
   }
 }
 
 export interface ApiClient {
   get<T>(path: string, init?: RequestInit): Promise<T>
+  /** POST `body` as JSON. */
+  post<T>(path: string, body?: unknown, init?: RequestInit): Promise<T>
   request<T>(path: string, init?: RequestInit): Promise<T>
 }
 
@@ -56,6 +62,12 @@ function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
     typeof (error as { code?: unknown }).code === 'string' &&
     typeof (error as { message?: unknown }).message === 'string'
   )
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (value === null) return undefined
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined
 }
 
 function newRequestId(): string {
@@ -94,6 +106,7 @@ export function createApiClient(
     const body: unknown = await response.json().catch(() => undefined)
 
     if (!response.ok) {
+      const retryAfter = parseRetryAfter(response.headers.get('Retry-After'))
       if (isErrorEnvelope(body)) {
         throw new ApiError({
           kind: 'http',
@@ -102,6 +115,7 @@ export function createApiClient(
           message: body.error.message,
           details: body.error.details,
           requestId: body.error.request_id ?? responseRequestId,
+          retryAfter,
         })
       }
       throw new ApiError({
@@ -110,6 +124,7 @@ export function createApiClient(
         code: 'http_error',
         message: `Request failed with status ${response.status}.`,
         requestId: responseRequestId,
+        retryAfter,
       })
     }
 
@@ -119,6 +134,12 @@ export function createApiClient(
   return {
     request,
     get: (path, init) => request(path, { ...init, method: 'GET' }),
+    post: (path, body, init) =>
+      request(path, {
+        ...init,
+        method: 'POST',
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
   }
 }
 

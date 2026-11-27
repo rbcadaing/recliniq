@@ -35,6 +35,33 @@ class PermissionDeniedError(AppError):
     message = "You do not have permission to perform this action."
 
 
+class FieldConflictError(ConflictError):
+    """A unique value is already taken. ``details`` names the field: ``{"field": "mobile"}``."""
+
+    def __init__(self, field: str, message: str | None = None) -> None:
+        super().__init__(message or f"This {field.replace('_', ' ')} is already registered.")
+        self.details = {"field": field}
+
+
+class InvalidTokenError(AppError):
+    code = "invalid_token"
+    message = "This link is invalid or has already been used."
+
+
+class TokenExpiredError(AppError):
+    code = "token_expired"
+    message = "This link has expired."
+
+
+class RateLimitedError(AppError):
+    code = "too_many_requests"
+    message = "Too many attempts. Please try again later."
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(details={"retry_after_seconds": retry_after_seconds})
+        self.retry_after_seconds = retry_after_seconds
+
+
 class DependencyUnavailableError(AppError):
     code = "service_unavailable"
     message = "A required service is unavailable."

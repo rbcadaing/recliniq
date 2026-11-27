@@ -80,4 +80,33 @@ describe('createApiClient', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect(error).toMatchObject({ kind: 'network', code: 'network_error', status: undefined })
   })
+
+  it('posts JSON bodies with a content type', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ message: 'ok' }))
+    const client = createApiClient('http://api.test', fetchMock)
+
+    await client.post('/api/v1/things', { name: 'x' })
+
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('http://api.test/api/v1/things')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe('{"name":"x"}')
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json')
+  })
+
+  it('exposes Retry-After seconds on rate-limited errors', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: { code: 'too_many_requests', message: 'Too many attempts.' } },
+          { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '120' } },
+        ),
+      )
+    const client = createApiClient('http://api.test', fetchMock)
+
+    const error = await client.post('/api/v1/things', {}).catch((e: unknown) => e)
+
+    expect(error).toMatchObject({ status: 429, code: 'too_many_requests', retryAfter: 120 })
+  })
 })
