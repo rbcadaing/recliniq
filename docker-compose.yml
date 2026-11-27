@@ -27,6 +27,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-recliniq}:${POSTGRES_PASSWORD:-recliniq}@db:5432/${POSTGRES_DB:-recliniq}
       CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173}
+      FRONTEND_BASE_URL: http://localhost:${FRONTEND_PORT:-5173}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
       WATCHFILES_FORCE_POLLING: ${DEV_WATCH_POLLING:-true}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -35,6 +38,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     healthcheck:
       test:
         - CMD
@@ -45,6 +50,12 @@ services:
       timeout: 3s
       retries: 20
       start_period: 10s
+
+  # Local mail catcher: the backend sends all email here; nothing leaves the machine.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
 
   frontend:
     build: ./frontend

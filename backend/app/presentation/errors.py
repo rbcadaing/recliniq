@@ -15,8 +15,11 @@ from app.domain.errors import (
     ConflictError,
     DependencyUnavailableError,
     DomainValidationError,
+    InvalidTokenError,
     NotFoundError,
     PermissionDeniedError,
+    RateLimitedError,
+    TokenExpiredError,
 )
 
 logger = structlog.get_logger("app.errors")
@@ -27,6 +30,9 @@ _STATUS_BY_ERROR: dict[type[AppError], int] = {
     DomainValidationError: 422,
     PermissionDeniedError: 403,
     DependencyUnavailableError: 503,
+    InvalidTokenError: 400,
+    TokenExpiredError: 400,
+    RateLimitedError: 429,
 }
 
 _CODE_BY_STATUS: dict[int, str] = {
@@ -75,12 +81,16 @@ def _status_for(exc: AppError) -> int:
 
 async def handle_app_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)  # noqa: S101
+    headers = None
+    if isinstance(exc, RateLimitedError):
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
     return error_response(
         request,
         status_code=_status_for(exc),
         code=exc.code,
         message=exc.message,
         details=exc.details,
+        headers=headers,
     )
 
 

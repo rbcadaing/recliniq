@@ -5,10 +5,18 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import Settings, load_settings
+from app.core.logging import configure_logging
 from app.main import create_app
 
 # Unit tests never connect: port 1 is unroutable, so anything hitting the DB fails fast.
 UNIT_DATABASE_URL = "postgresql+asyncpg://test:test@127.0.0.1:1/test"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _app_logging() -> None:
+    # Route structlog through stdlib logging as the app does, so ``caplog`` sees every log line
+    # no matter which test runs first (loggers are cached on first use).
+    configure_logging("INFO", json_logs=True)
 
 
 @pytest.fixture

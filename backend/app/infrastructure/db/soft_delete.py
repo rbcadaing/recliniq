@@ -21,7 +21,12 @@ from app.infrastructure.db.base import SoftDeleteMixin
 INCLUDE_DELETED = "include_deleted"
 
 # Application tables allowed to skip soft delete. Every entry needs a documented reason.
-SOFT_DELETE_EXEMPT_TABLES: frozenset[str] = frozenset()
+SOFT_DELETE_EXEMPT_TABLES: frozenset[str] = frozenset(
+    {
+        # Short-lived operational counters (hashed keys, no business meaning) that must be purged.
+        "rate_limit_counters",
+    }
+)
 
 
 class HardDeleteForbiddenError(RuntimeError):

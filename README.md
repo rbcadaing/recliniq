@@ -29,11 +29,13 @@ docker compose up --build
 | Backend API | http://localhost:8000/api/v1/health |
 | API docs (Swagger) | http://localhost:8000/api/v1/docs |
 | PostgreSQL | `localhost:5432` (user, password, and database `recliniq`) |
+| Mailpit (local email inbox) | http://localhost:8025 |
 
 - The backend applies database migrations automatically before it starts serving.
 - Backend and frontend reload when you save a file. File polling is on by default because Docker bind mounts on Windows and macOS don't deliver file events. On Linux, set `DEV_WATCH_POLLING=false` in `.env`.
 - Database data lives in the `db-data` volume and survives `docker compose down`. Use `docker compose down -v` to wipe it.
-- If a port is taken, change `POSTGRES_PORT`, `BACKEND_PORT`, or `FRONTEND_PORT` in `.env`.
+- Every email the backend sends locally lands in Mailpit; nothing is delivered externally.
+- If a port is taken, change `POSTGRES_PORT`, `BACKEND_PORT`, `FRONTEND_PORT`, or `MAILPIT_UI_PORT` in `.env`.
 
 ## Configuration
 
