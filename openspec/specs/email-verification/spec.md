@@ -52,13 +52,13 @@ Resend requests SHALL be limited per client IP address and per submitted email o
 
 ### Requirement: Verify-email page
 The frontend SHALL provide a verify-email page that reads the token from the link, confirms it with the backend, and shows the outcome:
-- verified;
+- verified, with a link to sign in;
 - link expired, offering to send a new email;
 - link invalid or already used, offering to send a new email.
 
 #### Scenario: Successful verification
 - **WHEN** a user opens a valid verification link
-- **THEN** the page confirms the token and tells the user their email is verified
+- **THEN** the page confirms the token, tells the user their email is verified, and offers a link to sign in
 
 #### Scenario: Expired link
 - **WHEN** a user opens an expired verification link

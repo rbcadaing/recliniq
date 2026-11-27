@@ -64,7 +64,8 @@ Key conventions:
   - Domain dataclasses are separate from ORM models; protocols live in `application/accounts/ports.py`; adapters in `infrastructure/accounts/`; wiring in `presentation/dependencies.py`.
   - Services return emails to send, and routes deliver them via `BackgroundTasks`.
   - Doctor sign-up must not reveal whether an email is registered. Keep every non-202 check *before* the email lookup in `SignUpDoctor`.
-- Tests: `tests/conftest.py` configures app logging per session, so use `caplog` (not structlog's `capture_logs`) to assert on log events. API integration tests override `get_session`, `get_mailer` (`InMemoryMailer`), and `get_clock`.
+- **Auth:** protect endpoints with `CurrentUserDep` from `app/presentation/security.py` (bearer JWT; reloads the user each request). Refresh tokens rotate, and reuse revokes the session. Failure paths that must persist writes (like reuse revocation) return a result instead of raising, because raising rolls back the unit of work. See `backend/README.md` → Sessions.
+- Tests: `tests/conftest.py` configures app logging per session, so use `caplog` (not structlog's `capture_logs`) to assert on log events. API integration tests use the `api`/`client`/`signup`/`mailer`/`clock` fixtures from `tests/integration/conftest.py`, which override `get_session` (rolled-back session), `get_mailer` (`InMemoryMailer`), and `get_clock`. Don't mix them with tests that need the real unit of work.
 
 Tests: `tests/conftest.py` gives unit tests an app pointed at an unroutable DB (`127.0.0.1:1`) so accidental DB access fails fast. `tests/integration/` is auto-marked `integration` and skipped without `TEST_DATABASE_URL`; it migrates the DB once per session and wraps each test in a rolled-back transaction (`db_session`, `integration_client` fixtures). Use a disposable DB — migrations run against it. pytest-asyncio is in auto mode with session-scoped loops.
 
@@ -73,6 +74,7 @@ Tests: `tests/conftest.py` gives unit tests an app pointed at an unroutable DB (
 - `src/api/client.ts` is the single entry point for backend calls: `createApiClient(baseUrl)` / `api` adds `X-Request-ID`, and normalizes failures into `ApiError` (`kind: 'http' | 'network'`, `code`, `status`, `requestId`) by parsing the backend error envelope. Per-resource modules (e.g. `api/health.ts`) wrap it and accept an injectable `ApiClient` for testing. Base URL comes from `VITE_API_BASE_URL`.
 - Routes are a `RouteObject[]` in `src/routes.tsx` (nested under `Layout`). Server state uses TanStack Query.
 - Tests use `renderAt(path, state?)` from `src/test/render.tsx`, which renders the real route tree in a memory router with a non-retrying `QueryClient`, inside `StrictMode`. Stub the backend with `mockApi({'POST /api/v1/...': () => json(...)})` from `src/test/mockApi.ts`.
+- **Session (frontend):** `src/auth/session.ts` keeps the access token in memory and the refresh token in `localStorage`. The `api` client adds `Authorization` and, on a 401 from a non-`/auth/` path, calls `refreshSession()` once (single-flight, inside a Web Lock across tabs) and retries. Use `useAuth()` from `src/auth/context.ts` and wrap protected routes in `<RequireAuth>`. Never nest `<ResendVerification>` (a form) inside another form.
 - Account forms (`src/features/accounts/`): validators mirror the backend rules, and errors are keyed by backend field name. `fieldErrorsFrom()` maps 422/409 responses onto fields. When passing API functions to `useMutation`, wrap them (`(x) => fn(x)`), because TanStack passes a context second argument.
 
 ## Workflow: OpenSpec
