@@ -30,7 +30,7 @@
   - JUnit and coverage artifacts uploaded with `if: always()`, and totals written to `$GITHUB_STEP_SUMMARY`.
 
   Verify that `actionlint` reports nothing, and that `grep -E "uses: [^@]+@(v|main|master)" .github/workflows/*.yml` finds no tag- or branch-pinned actions.
-- [ ] 5.2 Add `.github/workflows/codeql.yml` (python and javascript-typescript, `build-mode: none`, pull requests and pushes to `master`, a weekly cron, `security-events: write` only on the analyze job, and SHA-pinned actions). Verify with `actionlint`, and on the pull request's first run, check that both CodeQL analyses complete and upload results.
+- [x] 5.2 Add `.github/workflows/codeql.yml` (python and javascript-typescript, `build-mode: none`, pull requests and pushes to `master`, a weekly cron, `security-events: write` only on the analyze job, and SHA-pinned actions). Verify with `actionlint`, and on the pull request's first run, check that both CodeQL analyses complete and upload results.
 - [ ] 5.3 Add `.github/dependabot.yml` covering `github-actions` (/), `uv` (/backend), `npm` (/frontend), and `docker` (/backend, /frontend), weekly, with grouped minor and patch updates. Verify that the file parses against the Dependabot schema, and that after merging the repo's Insights → Dependency graph → Dependabot tab lists all five ecosystems.
 
 ## 6. Local hooks and docs
@@ -50,7 +50,7 @@
 
 ## 7. Rollout and verification
 
-- [ ] 7.1 Push the branch and open a pull request to `master`. Verify that every job in `ci.yml` and `codeql.yml` passes, that `CI result` reports success, and that the job summaries show test counts and coverage.
-- [ ] 7.2 Check path filtering on the pull request: push a docs-only commit and confirm that the backend, frontend, and smoke jobs are skipped while `CI result` still reports success. Then revert that commit if it isn't wanted.
+- [x] 7.1 Push the branch and open a pull request to `master`. Verify that every job in `ci.yml` and `codeql.yml` passes, that `CI result` reports success, and that the job summaries show test counts and coverage.
+- [ ] 7.2 Check path filtering with a pull request whose whole diff touches neither app, such as the OpenSpec archive pull request for this change (only `openspec/` files). On pull requests, the filter compares the entire pull request with `master`, not the latest commit. A docs-only commit pushed to this pull request still ran every job, which is correct, because the whole pull request is what merges. Confirm that the backend, frontend, and smoke jobs are skipped while `CI result` still reports success.
 - [ ] 7.3 After merging, ask for confirmation, then apply the ruleset (`gh api repos/rbcadaing/recliniq/rulesets --method POST --input .github/rulesets/master.json`) and enable secret scanning and push protection. Verify that `gh api repos/rbcadaing/recliniq/rulesets` lists it as active, and that a direct `git push origin master` of a no-op commit is rejected.
 - [ ] 7.4 Update GitHub issue #5 to record the agreed deviations (oxlint instead of ESLint; 0 required approvals until a second maintainer joins), and confirm that the issue text matches what was shipped.
