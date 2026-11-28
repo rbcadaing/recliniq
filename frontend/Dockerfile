@@ -1,5 +1,5 @@
 # Development image: runs the Vite dev server; source is bind-mounted by docker compose.
-FROM node:24-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 
