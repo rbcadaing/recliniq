@@ -12,6 +12,7 @@ from app.application.accounts.ports import (
     RateLimiter,
     SpecializationRepository,
     TokenIssuer,
+    UserRepository,
 )
 from app.application.accounts.services import (
     AccountSettings,
@@ -127,6 +128,12 @@ def get_specialization_repository(
     return SqlSpecializationRepository(session)
 
 
+def get_user_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> UserRepository:
+    return SqlUserRepository(session)
+
+
 def _account_ports(
     session: Annotated[AsyncSession, Depends(get_session)],
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
@@ -163,6 +170,7 @@ MailerDep = Annotated[Mailer, Depends(get_mailer)]
 SpecializationRepositoryDep = Annotated[
     SpecializationRepository, Depends(get_specialization_repository)
 ]
+UserRepositoryDep = Annotated[UserRepository, Depends(get_user_repository)]
 SignUpDoctorDep = Annotated[SignUpDoctor, Depends(get_sign_up_doctor)]
 ConfirmEmailDep = Annotated[ConfirmEmail, Depends(get_confirm_email)]
 ResendVerificationDep = Annotated[ResendVerification, Depends(get_resend_verification)]

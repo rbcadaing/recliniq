@@ -16,5 +16,17 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     restoreMocks: true,
+    // CI also writes JUnit results for the build artifacts and job summary (see docs/ci.md).
+    reporters: process.env.CI ? ['default', 'junit'] : ['default'],
+    outputFile: { junit: './reports/junit.xml' },
+    // `npm run test:coverage` enforces the 70% line threshold (US-00.4).
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/api/generated/**', 'src/**/*.d.ts'],
+      reporter: ['text-summary', 'cobertura', 'html', 'json-summary'],
+      reportsDirectory: './coverage',
+      thresholds: { lines: 70 },
+    },
   },
 })

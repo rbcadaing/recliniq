@@ -1,9 +1,16 @@
+# Build validation pipeline (US-00.4). Every check is documented in docs/ci.md.
+#
+# Branch protection requires only the aggregate "CI result" check. Jobs that a change doesn't
+# touch are skipped (not failed), and "CI result" still reports, so merges are never blocked by
+# a check that never ran. Third-party actions are pinned to commit SHAs (Dependabot bumps them).
+
 name: CI
 
 on:
   pull_request:
+    branches: [master]
   push:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -12,9 +19,43 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  UV_VERSION: "0.13.10"
+  NODE_VERSION: "24"
+
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      # Pushes to master always run everything.
+      backend: ${{ github.event_name == 'push' || steps.filter.outputs.backend == 'true' || steps.filter.outputs.ci == 'true' }}
+      frontend: ${{ github.event_name == 'push' || steps.filter.outputs.frontend == 'true' || steps.filter.outputs.ci == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            ci:
+              - '.github/workflows/ci.yml'
+              - '.github/scripts/**'
+              - 'docker-compose.yml'
+              - '.env.example'
+              - '.pre-commit-config.yaml'
+              - '.gitleaks.toml'
+
   backend:
-    name: Backend (lint, types, tests)
+    name: Backend
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,11 +79,13 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://recliniq:recliniq@localhost:5432/recliniq_test
       APP_ENV: test
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: astral-sh/setup-uv@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: "0.13.10"
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
@@ -55,27 +98,60 @@ jobs:
       - name: Format check
         run: uv run ruff format --check .
 
-      - name: Type check
+      - name: Type check (mypy strict)
         run: uv run mypy
 
-      - name: Apply migrations
+      - name: Architecture contracts
+        run: uv run lint-imports
+
+      - name: Migrations - upgrade to head
         run: uv run alembic upgrade head
 
-      - name: Tests
-        run: uv run pytest
+      - name: Migrations - models match migrations
+        run: uv run alembic check
+
+      - name: Migrations - downgrade to base and upgrade again
+        run: |
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+
+      - name: OpenAPI snapshot is up to date
+        run: uv run python -m scripts.export_openapi --check
+
+      - name: Tests with coverage (min 80%)
+        run: >-
+          uv run pytest
+          --cov=app --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+          --cov-fail-under=80 --junitxml=reports/junit.xml
+
+      - name: Test summary
+        if: always()
+        run: python3 ../.github/scripts/test_summary.py Backend reports/junit.xml reports/coverage.xml
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backend-reports
+          path: backend/reports/
+          if-no-files-found: ignore
 
   frontend:
-    name: Frontend (lint, types, tests, build)
+    name: Frontend
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -85,11 +161,124 @@ jobs:
       - name: Lint and format check
         run: npm run lint
 
+      - name: Generated API types are up to date
+        run: |
+          npm run api:generate
+          if [ -n "$(git status --porcelain -- src/api/generated)" ]; then
+            git status --short -- src/api/generated
+            echo "::error::src/api/generated is stale. Run the backend OpenAPI export and 'npm run api:generate', then commit (docs/ci.md#api-contract)."
+            exit 1
+          fi
+
       - name: Type check
         run: npm run typecheck
 
-      - name: Tests
-        run: npm test -- --run
+      - name: Tests with coverage (min 70%)
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build
+
+      - name: Test summary
+        if: always()
+        run: python3 ../.github/scripts/test_summary.py Frontend reports/junit.xml coverage/cobertura-coverage.xml
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-reports
+          path: |
+            frontend/reports/
+            frontend/coverage/
+          if-no-files-found: ignore
+
+  security:
+    name: Security
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans the full history
+          persist-credentials: false
+
+      - name: Secret scan (gitleaks, full history)
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo
+          zricethezav/gitleaks@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9
+          git --config .gitleaks.toml --log-opts="--all" --redact --no-banner --exit-code 1
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        if: needs.changes.outputs.backend == 'true'
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Backend dependency audit (pip-audit)
+        if: needs.changes.outputs.backend == 'true'
+        working-directory: backend
+        run: |
+          uv export --frozen --no-emit-project --quiet > "$RUNNER_TEMP/requirements.txt"
+          ignores=$(grep -oE '^[A-Za-z0-9._-]+' .pip-audit-ignore | sed 's/^/--ignore-vuln /' | tr '\n' ' ')
+          # shellcheck disable=SC2086 # word splitting of $ignores is intended
+          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --strict --require-hashes --disable-pip $ignores
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.frontend == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Frontend dependency audit (npm audit, high+)
+        if: needs.changes.outputs.frontend == 'true'
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  smoke:
+    name: Compose smoke test
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Start the stack
+        run: |
+          cp .env.example .env
+          sed -i 's/^DEV_WATCH_POLLING=.*/DEV_WATCH_POLLING=false/' .env
+          docker compose up --build --detach --wait --wait-timeout 300
+
+      - name: Backend is ready
+        run: curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors http://localhost:8000/api/v1/health/ready
+
+      - name: Frontend serves the app
+        run: |
+          curl --fail --silent --show-error --retry 20 --retry-delay 3 --retry-all-errors http://localhost:5173/ -o page.html
+          grep -q '<div id="root">' page.html
+
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+
+  ci-result:
+    name: CI result
+    needs: [changes, backend, frontend, security, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All selected jobs passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "Job results: $RESULTS"
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::One or more CI jobs failed or were cancelled."
+            exit 1
+          fi

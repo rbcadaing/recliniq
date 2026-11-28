@@ -1,5 +1,7 @@
+import type { TokenResponse } from '../api/auth'
 import { API_BASE_URL, ApiError, createApiClient } from '../api/client'
-import { clearSession, getRefreshToken, setSession, type TokenPair } from './session'
+import type { components } from '../api/generated/schema'
+import { clearSession, getRefreshToken, setSession } from './session'
 
 const LOCK_NAME = 'recliniq-refresh'
 
@@ -34,9 +36,9 @@ async function exchange(): Promise<boolean> {
   // A plain client: no auth hooks, so a failing refresh can't trigger another refresh.
   const client = createApiClient(API_BASE_URL)
   try {
-    const tokens = await client.post<TokenPair>('/api/v1/auth/refresh', {
+    const tokens = await client.post<TokenResponse>('/api/v1/auth/refresh', {
       refresh_token: refreshToken,
-    })
+    } satisfies components['schemas']['RefreshRequest'])
     setSession(tokens)
     return true
   } catch (error) {

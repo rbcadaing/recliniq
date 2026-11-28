@@ -15,13 +15,15 @@ docker compose exec db createdb -U recliniq recliniq_test   # one-time: DB for i
 Backend (run from `backend/`):
 ```bash
 uv sync
-uv run ruff check . && uv run ruff format --check . && uv run mypy   # mypy is strict
+uv run ruff check . && uv run ruff format --check . && uv run mypy   # mypy is strict (app/ + scripts/)
+uv run lint-imports                              # architecture contracts (backend/.importlinter)
 uv run pytest                                    # integration tests skipped unless TEST_DATABASE_URL set
 TEST_DATABASE_URL=postgresql+asyncpg://recliniq:recliniq@localhost:5432/recliniq_test uv run pytest
 uv run pytest tests/unit/test_health.py::test_name   # single test
 uv run uvicorn app.main:create_app --factory --reload   # run natively (needs backend/.env)
 uv run alembic revision --autogenerate -m "describe change"
 uv run alembic upgrade head
+uv run python -m scripts.export_openapi          # after changing any request/response model (then npm run api:generate)
 ```
 
 Frontend (run from `frontend/`):
@@ -31,11 +33,15 @@ npm run lint          # oxlint --deny-warnings + prettier --check
 npm run format        # prettier --write
 npm run typecheck
 npm test -- --run     # vitest; `npm test` alone runs in watch mode
+npm run test:coverage # vitest with the 70% line threshold (CI runs this)
+npm run api:generate  # regenerate src/api/generated/schema.ts from the OpenAPI snapshot
 npx vitest run src/pages/HomePage.test.tsx -t "name"   # single test
 npm run build
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly the lint/format/typecheck/test/build steps above for both apps, with a Postgres service and `alembic upgrade head` before backend tests.
+Pre-commit hooks mirror the CI checks: `uvx pre-commit install` once per clone, `uvx pre-commit run --all-files` by hand.
+
+CI (`.github/workflows/ci.yml`) is the merge gate for `master`; **`docs/ci.md` documents every check and how to fix it.** Only the aggregate `CI result` check is required (jobs are skipped by changed paths), plus CodeQL via the ruleset in `.github/rulesets/master.json`. Beyond the commands above it enforces: backend coverage ≥80% (`--cov-fail-under=80`, needs `TEST_DATABASE_URL`), `alembic check` plus a downgrade/upgrade round trip, the OpenAPI snapshot, gitleaks, `pip-audit`, `npm audit --audit-level=high`, and a Docker Compose smoke test. Pin new GitHub Actions to a commit SHA with a `# vX.Y.Z` comment, and give workflows minimal `permissions`.
 
 ## Backend architecture
 
@@ -46,7 +52,7 @@ Clean architecture under `backend/app/` (details in `backend/README.md`):
 - `presentation/` — routers under `api/v1/`, schemas, error handlers, and `dependencies.py`.
 - `core/` — settings (pydantic-settings), structlog logging, request-context middleware.
 
-Dependency rule: `presentation → application → domain`. Infrastructure is wired in **only** via `presentation/dependencies.py`, which builds services from `request.app.state` and exposes `Annotated[..., Depends(...)]` aliases (`SettingsDep`, `SessionDep`, etc.). Code is grouped by feature within each layer.
+Dependency rule: `presentation → application → domain`. Infrastructure is wired in **only** via `presentation/dependencies.py`, which builds services from `request.app.state` and exposes `Annotated[..., Depends(...)]` aliases (`SettingsDep`, `SessionDep`, etc.). Code is grouped by feature within each layer. `lint-imports` enforces this: routers and `security.py` get adapters through providers such as `UserRepositoryDep`, never by importing `app.infrastructure` or `sqlalchemy`.
 
 Key conventions:
 - `app/main.py:create_app(settings)` is a factory; `Settings` and `Database` live on `app.state`. Tests build their own app by passing settings.
@@ -58,6 +64,7 @@ Key conventions:
   - Every model uses `SoftDeleteMixin`, and every new table's migration calls `protect_from_hard_delete(table)`. Tests enforce both.
   - Deleted rows are filtered out of all ORM selects by a session-wide listener; use `.execution_options(include_deleted=True)` to see them.
   - `session.delete()` and bulk `delete()` raise `HardDeleteForbiddenError`. Use `SoftDeleteRepository.soft_delete()` / `restore()` instead.
+  - `tests/unit/test_no_hard_deletes.py` statically bans `delete()`, `session.delete()`, and raw `DELETE FROM` in `app/` and migrations; an exempt-table delete needs `# hard-delete-ok: <reason>` on or above the line.
   - Use `soft_unique_index(...)` instead of `unique=True` on soft-deletable tables.
   - `rate_limit_counters` is the one exempt table (`SOFT_DELETE_EXEMPT_TABLES`).
 - **Accounts feature is the ports-and-adapters template** (`backend/README.md` → Accounts):
@@ -71,7 +78,7 @@ Tests: `tests/conftest.py` gives unit tests an app pointed at an unroutable DB (
 
 ## Frontend architecture
 
-- `src/api/client.ts` is the single entry point for backend calls: `createApiClient(baseUrl)` / `api` adds `X-Request-ID`, and normalizes failures into `ApiError` (`kind: 'http' | 'network'`, `code`, `status`, `requestId`) by parsing the backend error envelope. Per-resource modules (e.g. `api/health.ts`) wrap it and accept an injectable `ApiClient` for testing. Base URL comes from `VITE_API_BASE_URL`.
+- `src/api/client.ts` is the single entry point for backend calls: `createApiClient(baseUrl)` / `api` adds `X-Request-ID`, and normalizes failures into `ApiError` (`kind: 'http' | 'network'`, `code`, `status`, `requestId`) by parsing the backend error envelope. Per-resource modules (e.g. `api/health.ts`) wrap it and accept an injectable `ApiClient` for testing. Their types alias the generated `components['schemas'][...]` in `src/api/generated/schema.ts` (request bodies use `satisfies`). Never hand-write API types or edit `src/api/generated/`; regenerate it (see Commands). Base URL comes from `VITE_API_BASE_URL`.
 - Routes are a `RouteObject[]` in `src/routes.tsx` (nested under `Layout`). Server state uses TanStack Query.
 - Tests use `renderAt(path, state?)` from `src/test/render.tsx`, which renders the real route tree in a memory router with a non-retrying `QueryClient`, inside `StrictMode`. Stub the backend with `mockApi({'POST /api/v1/...': () => json(...)})` from `src/test/mockApi.ts`.
 - **Session (frontend):** `src/auth/session.ts` keeps the access token in memory and the refresh token in `localStorage`. The `api` client adds `Authorization` and, on a 401 from a non-`/auth/` path, calls `refreshSession()` once (single-flight, inside a Web Lock across tabs) and retries. Use `useAuth()` from `src/auth/context.ts` and wrap protected routes in `<RequireAuth>`. Never nest `<ResendVerification>` (a form) inside another form.

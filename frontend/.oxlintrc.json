@@ -8,12 +8,19 @@
   "rules": {
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "warn",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
     "react/react-in-jsx-scope": "off",
     "import/no-unassigned-import": [
       "warn",
-      { "allow": ["**/*.css", "@testing-library/jest-dom/vitest"] }
+      {
+        "allow": ["**/*.css", "@testing-library/jest-dom/vitest"]
+      }
     ]
   },
-  "ignorePatterns": ["dist", "coverage"]
+  "ignorePatterns": ["dist", "coverage", "src/api/generated", "reports"]
 }

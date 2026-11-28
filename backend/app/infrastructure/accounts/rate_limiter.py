@@ -50,6 +50,7 @@ class PostgresRateLimiter:
     @staticmethod
     async def _purge(connection: AsyncConnection, now: datetime) -> None:
         await connection.execute(
+            # hard-delete-ok: rate_limit_counters is exempt from soft delete (expired windows)
             delete(RateLimitCounterModel).where(
                 RateLimitCounterModel.window_start < now - PURGE_OLDER_THAN
             )

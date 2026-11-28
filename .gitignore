@@ -28,3 +28,8 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# CI reports (US-00.4)
+reports/
+junit.xml
+coverage.xml
