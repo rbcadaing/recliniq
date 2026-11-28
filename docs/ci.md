@@ -35,6 +35,7 @@ Most of the fast checks also run on every commit through [pre-commit hooks](#pre
 - **Detect changes** decides which jobs a pull request needs. Changes under `backend/` run the backend job, changes under `frontend/` run the frontend job, and changes to shared pipeline files (the CI workflow, `.github/scripts/`, `docker-compose.yml`, `.env.example`, `.pre-commit-config.yaml`, `.gitleaks.toml`) run both. Pushes to `master` always run everything.
 - **Security** always runs the secret scan; the dependency audits follow the backend/frontend selection.
 - **Compose smoke test** runs when either app changed.
+- Jobs run in parallel. On the first run (PR #11), the whole pipeline took about a minute: backend ~50 s, frontend ~25 s, security ~20 s, smoke test ~60 s, and CodeQL ~45 s per language.
 - **CI result** always runs last. It fails if any job failed or was cancelled, and passes when every job passed or was skipped as not applicable. It's the only CI check branch protection requires, so adding or renaming jobs never needs a ruleset change, and a docs-only pull request still gets a green check.
 
 ## Backend checks
