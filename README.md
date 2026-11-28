@@ -10,6 +10,7 @@ Clinic platform for doctor schedules, online consultation booking, live patient 
 | `frontend/` | React + TypeScript single-page app built with Vite |
 | `docker-compose.yml` | Local stack: PostgreSQL, backend, frontend |
 | `openspec/` | Specs and change proposals |
+| `docs/` | Contributor docs (CI checks and branch protection: `docs/ci.md`) |
 
 ## Prerequisites
 
@@ -55,14 +56,18 @@ Outside local development, set `JWT_SECRET` to at least 32 random bytes (`python
 # Backend
 cd backend
 uv sync
-uv run ruff check . && uv run ruff format --check . && uv run mypy
+uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run lint-imports
 TEST_DATABASE_URL=postgresql+asyncpg://recliniq:recliniq@localhost:5432/recliniq_test uv run pytest
 
 # Frontend
 cd frontend
 npm ci
-npm run lint && npm run typecheck && npm test -- --run && npm run build
+npm run lint && npm run typecheck && npm run test:coverage && npm run build
 ```
+
+Install the pre-commit hooks once per clone with `uvx pre-commit install`; they run the fast checks on every commit.
+
+**CI and branch protection:** pull requests to `master` must pass the **CI result** check. Besides lint, types, and tests, it enforces coverage thresholds, dependency audits, secret scanning, architecture contracts, the API contract snapshot, and a Docker Compose smoke test. [`docs/ci.md`](docs/ci.md) lists every check, how to run it locally, and how to fix common failures.
 
 Integration tests need a **disposable** database because they migrate it up and down. Create one in the running stack with `docker compose exec db createdb -U recliniq recliniq_test`. Without `TEST_DATABASE_URL`, integration tests are skipped.
 

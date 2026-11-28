@@ -1,0 +1,4 @@
+# Accepted pip-audit findings (US-00.4). CI turns each entry into `--ignore-vuln <ID>`.
+# Format, one per line:  <VULN-ID>  # <reason>, review-by YYYY-MM-DD
+# Prefer upgrading. Only add an entry when no fixed version exists or the vulnerable code path
+# is unreachable, and remove it by the review date. See docs/ci.md → "Dependency audits".

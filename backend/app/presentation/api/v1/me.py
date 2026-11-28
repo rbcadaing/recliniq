@@ -5,8 +5,7 @@ from pydantic import BaseModel
 
 from app.domain.accounts.values import LicenseStatus, Role
 from app.domain.errors import NotAuthenticatedError
-from app.infrastructure.accounts.repositories import SqlUserRepository
-from app.presentation.dependencies import SessionDep
+from app.presentation.dependencies import UserRepositoryDep
 from app.presentation.schemas import ErrorEnvelope
 from app.presentation.security import CurrentUserDep
 
@@ -40,8 +39,8 @@ class AccountProfileResponse(BaseModel):
     summary="The signed-in user's profile",
     responses={401: {"model": ErrorEnvelope, "description": "not_authenticated"}},
 )
-async def get_me(user: CurrentUserDep, session: SessionDep) -> AccountProfileResponse:
-    profile = await SqlUserRepository(session).find_profile(user.id)
+async def get_me(user: CurrentUserDep, users: UserRepositoryDep) -> AccountProfileResponse:
+    profile = await users.find_profile(user.id)
     if profile is None:
         raise NotAuthenticatedError
     doctor = None

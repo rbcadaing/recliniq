@@ -12,8 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.domain.accounts.entities import User
 from app.domain.errors import NotAuthenticatedError
-from app.infrastructure.accounts.repositories import SqlUserRepository
-from app.presentation.dependencies import SessionDep, TokenIssuerDep
+from app.presentation.dependencies import TokenIssuerDep, UserRepositoryDep
 
 bearer_scheme = HTTPBearer(
     auto_error=False,
@@ -25,12 +24,12 @@ bearer_scheme = HTTPBearer(
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     issuer: TokenIssuerDep,
-    session: SessionDep,
+    users: UserRepositoryDep,
 ) -> User:
     if credentials is None:
         raise NotAuthenticatedError
     claims = issuer.decode_access(credentials.credentials)
-    user = await SqlUserRepository(session).find(claims.user_id)
+    user = await users.find(claims.user_id)
     if user is None:
         raise NotAuthenticatedError
     return user

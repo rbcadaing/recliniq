@@ -1,0 +1,55 @@
+# Clean-architecture contracts (US-00.4). Run with `uv run lint-imports`.
+# See docs/ci.md → "Architecture contracts" for what each rule protects and how to fix failures.
+
+[importlinter]
+root_package = app
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Layers: presentation > application > domain
+type = layers
+layers =
+    app.presentation
+    app.application
+    app.domain
+
+[importlinter:contract:pure-domain]
+name = Domain is pure Python (no other layers, web framework, or ORM)
+type = forbidden
+source_modules =
+    app.domain
+forbidden_modules =
+    app.application
+    app.infrastructure
+    app.presentation
+    fastapi
+    starlette
+    sqlalchemy
+
+[importlinter:contract:application-ports]
+name = Application depends only on domain and its own ports
+type = forbidden
+source_modules =
+    app.application
+forbidden_modules =
+    app.infrastructure
+    app.presentation
+
+[importlinter:contract:composition-root]
+name = Only presentation.dependencies wires in infrastructure
+type = forbidden
+source_modules =
+    app.presentation
+forbidden_modules =
+    app.infrastructure
+ignore_imports =
+    app.presentation.dependencies -> app.infrastructure.**
+
+[importlinter:contract:routers-no-orm]
+name = API routers do not use the ORM directly
+type = forbidden
+source_modules =
+    app.presentation.api
+forbidden_modules =
+    sqlalchemy
+allow_indirect_imports = True

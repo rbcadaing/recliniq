@@ -1,0 +1,18 @@
+# Secret scanning config (US-00.4). Used by CI (full history) and the pre-commit hook (staged).
+# See docs/ci.md → "Secret scanning" before adding anything here.
+#
+# Allowlist exact, documented fake values, never whole directories, so a real secret pasted
+# into a test file is still caught.
+
+title = "RecliniQ gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Local-development-only defaults that are rejected outside local/test environments"
+regexTarget = "match"
+regexes = [
+  '''local-dev-only-jwt-secret-change-me-0000''',
+  '''local-compose-jwt-secret-not-for-production-use''',
+]

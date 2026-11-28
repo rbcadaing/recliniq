@@ -1,0 +1,79 @@
+# Local checks that mirror CI (US-00.4). Install once:  uvx pre-commit install
+# Opt-in tests before push:                             uvx pre-commit install --hook-type pre-push
+# Run everything by hand:                               uvx pre-commit run --all-files
+#
+# Hooks call the project's own toolchains (uv / npm), so tool versions and config are exactly
+# the ones CI uses. Skip one hook for a single commit with e.g. `SKIP=mypy git commit ...`;
+# CI still enforces it. See docs/ci.md → "Pre-commit hooks".
+
+minimum_pre_commit_version: "4.0.0"
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 6eaad039603a4de39fddd1cf5f727391efe9974e # frozen: v8.30.0
+    hooks:
+      - id: gitleaks # scans staged changes with .gitleaks.toml
+
+  - repo: local
+    hooks:
+      # --- Backend (same commands as the CI "Backend" job) ---------------------------------
+      - id: ruff-check
+        name: backend ruff check
+        entry: uv run --directory backend ruff check .
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: ruff-format
+        name: backend ruff format --check
+        entry: uv run --directory backend ruff format --check .
+        language: system
+        files: ^backend/
+        pass_filenames: false
+      - id: mypy
+        name: backend mypy (strict)
+        entry: uv run --directory backend mypy
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+      - id: lint-imports
+        name: backend architecture contracts
+        entry: uv run --directory backend lint-imports
+        language: system
+        files: ^backend/(app/.*\.py|\.importlinter)$
+        pass_filenames: false
+      - id: openapi-snapshot
+        name: backend OpenAPI snapshot up to date
+        entry: uv run --directory backend python -m scripts.export_openapi --check
+        language: system
+        files: ^(backend/app/|backend/scripts/|frontend/src/api/generated/)
+        pass_filenames: false
+
+      # --- Frontend (same commands as the CI "Frontend" job) -------------------------------
+      - id: frontend-lint
+        name: frontend oxlint + prettier --check
+        entry: npm --prefix frontend run lint
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+      - id: frontend-typecheck
+        name: frontend tsc
+        entry: npm --prefix frontend run typecheck
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+
+      # --- Opt-in, pre-push only: tests ---------------------------------------------------
+      - id: backend-tests
+        name: backend tests
+        entry: uv run --directory backend pytest -q
+        language: system
+        files: ^backend/
+        pass_filenames: false
+        stages: [pre-push]
+      - id: frontend-tests
+        name: frontend tests
+        entry: npm --prefix frontend test -- --run
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        stages: [pre-push]
